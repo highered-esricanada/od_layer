@@ -2,7 +2,7 @@
 
 This is an experimental sample that contains significant portions of the [source code](https://github.com/damix911/ds-demo-2019) for the *Postcard from Esri* demo [presented](https://www.esri.com/en-us/about/events/devsummit/agenda/agenda) at the [Esri Developer Summit 2019](https://www.esri.com/en-us/about/events/devsummit/overview)
 
-The purpose of the Origin-Destination layer is to enable interactive visualization of origin-destination data matrices associated with polygon geometry data.  It uses code derived from the original Esri sample for drawing polygons in a [custom WebGL layer view](https://developers.arcgis.com/javascript/latest/sample-code/custom-gl-visuals/index.html) to display zones.  Colours are applied to each zone using a lookup object that is calculated on-the-fly from an origin-destination matrix to display the amount of time, cost, or other measures that relate to travelling to or from a selected zone and all other zones.  With this implementation, the displayed colours on the map can be updated very rapidly, making the visualization of the differences in origin-destination relationships across a dataset with many zones fluid and interactive.
+The purpose of the Origin-Destination layer in this project is to enable interactive visualization of origin-destination data matrices associated with polygon geometry data.  It uses code derived from the original Esri sample for drawing polygons in a [custom WebGL layer view](https://developers.arcgis.com/javascript/latest/sample-code/custom-gl-visuals/index.html) to display zones.  Colours are applied to each zone using a lookup object that is calculated on-the-fly from an origin-destination matrix to display the amount of time, cost, or other measures that relate to travelling to or from a selected zone and all other zones.  With this implementation, the displayed colours on the map can be updated very rapidly, making the visualization of the differences in origin-destination relationships across a dataset with many zones fluid and interactive.
 
 When a given zone is chosen, then the values associated with travelling to/from that zone and all other zones are analyzed.  A colour range is calculated representing +/- one standard deviation from the mean of all values.  Then a colour for each zone is calculated based on this range and saved in a dictionary object.  As the WebGL layer view draws each zone, it uses the colour assigned to the corresponding zone from the dictionary object.
 
@@ -57,7 +57,7 @@ After the dependencies are installed, run the following command to build and wat
 
 Leave the above command running, and as you edit any of the TypeScript files in the `src/` folder, the `bundles/app.js` module will be automatically rebuilt.
 
-The `ODLayer` class is defined in `demo/ODLayer.js` - it uses the compiled `bundles/app.js` module for the WebGL rendering. 
+The `ODLayer` class is defined in `demo/ODLayer.js` - it uses the compiled `bundles/app.js` module for the WebGL rendering.
 
 ### Acknowledgements
 
