@@ -13,13 +13,26 @@
       height: 100%;
       width: 100%;
       background-color: #1d2224;
+      overflow: hidden;
+    }
+
+    body > * {
+      transition: opacity 0.5s ease-in-out;
+    }
+
+    body.initializing > *:not(.main-loader) {
+      opacity: 0;
+    }
+
+    body:not(.initializing) > .main-loader {
+      opacity: 0;
     }
 
     #title {
       font-weight: bold;
     }
 
-    #title, #subtitle, #instructions {
+    #title, #subtitle, #instructions, .title {
       padding: 10px;
     }
 
@@ -34,17 +47,6 @@
       }
     }
 
-    #loading {
-      z-index: 10;
-      width: 20px;
-      height: 20px;
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      margin-left: -10px;
-      margin-top: -10px;
-    }
-
     #timePeriod {
       position: absolute;
       bottom: 55px;
@@ -57,6 +59,30 @@
       left: 15px;
     }
 
+    .loader-container {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .loader-container.main-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .loader-container.main-loader div {
+      align-self: center;
+      text-align: center;
+    }
+
     .loader,
     .loader:after {
       border-radius: 50%;
@@ -64,9 +90,11 @@
       height: 10em;
     }
     .loader {
+      z-index: 10;
+      width: 20px;
+      height: 20px;
       margin: 60px auto;
       font-size: 10px;
-      position: relative;
       text-indent: -9999em;
       border-top: 1.1em solid rgba(255, 255, 255, 0.2);
       border-right: 1.1em solid rgba(255, 255, 255, 0.2);
@@ -171,6 +199,11 @@
 
       ODLayer
     ) {
+
+      if (!fetch || !Promise) {
+        alert("This app requires a modern browser (e.g., Chrome, Firefox, Safari, Edge).");
+        return;
+      }
 
       var tileLayer2d = new VectorTileLayer({
         url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
@@ -280,13 +313,13 @@
         var variable = document.getElementById("variable");
         var timePeriod = document.getElementById("timePeriod");
         variable.disabled = timePeriod.disabled = true;
-        document.getElementById("loading").classList.remove("hidden");
+        document.querySelector(".loader-container").classList.remove("hidden");
 
         last_src = timePeriod.value + "/" + variable.value;
         return new Promise(function(resolve, reject){
           fetch("data/"+last_src+".json").then(function(response){
             response.json().then(function(od_data){
-              document.getElementById("loading").classList.add("hidden");
+              document.querySelector(".loader-container").classList.add("hidden");
               update_labels();
               console.log("got od data");
               variable.disabled = timePeriod.disabled = false;
@@ -337,6 +370,12 @@
             view.on("pointer-move", handle_move_event);
             view.on("click", handle_click_event);
             view.on("double-click", handle_double_click_event);
+
+            var loader = document.querySelector('.main-loader');
+            loader.addEventListener('transitionend', function(){
+              loader.classList.add("hidden");
+            });
+            document.body.classList.remove('initializing');
           });
         });
 
@@ -390,7 +429,7 @@
   </script>
 </head>
 
-<body>
+<body class="initializing">
   <div id="viewDiv"></div>
   <button class="fas fa-exchange-alt esri-widget--button" style="border: 0;" id="switchDirection" type="button" title="Switch direction"></button>
   <select class="esri-widget" id="timePeriod">
@@ -419,6 +458,14 @@
     <div class="minus1stdev">-</div>
     <div class="colour"></div>
   </div>
-  <div id="loading" class="loader"></div>
+  <div class="loader-container"><div class="loader"></div></div>
+  <div class="loader-container main-loader">
+    <div class="esri-widget title">
+      <strong>GTA Origin/Destination Travel Viz</strong>
+      <br /><br />
+      Please wait...
+    </div>
+    <div class="loader"></div>
+  </div>
 </body>
 </html>
