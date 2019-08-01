@@ -34,6 +34,8 @@ If you have origin-destination data in CSV format, with the first column and fir
 
 The constructor for the `ODLayer` class requires an object with the following properties:
 
+| Property | Description |
+| --- | --- |
 | `zone_boundaries` |  FeatureSet JSON object containing polygons with zone identifier attributes  assigned to them. |
 | `zone_id_column` | The name of the attribute to be used as zone identifiers. |
 | `render_colour` | A Colour object compatible with the [`esri/Colour`](https://developers.arcgis.com/javascript/latest/api-reference/esri-Color.html) class (e.g., for red: `{r: 255, g:0, b: 0, a: 1}`), which is used to display zones with +1 standard deviation or better from the mean in terms of travel time or cost (lower values are better).  Zones that fall at or below -1 standard deviation from the mean or lower will be transparent. |
@@ -43,6 +45,8 @@ The constructor for the `ODLayer` class requires an object with the following pr
 
 The `ODLayer` has the following additional watchable property:
 
+| Property | Description |
+| --- | --- |
 | `zone_render_values` | Set as an object that provides the values calculated for the selected origin or destination zone, including the following properties: `min`, `mean`, `max`, `plus1stdev`, `minus1stdev` - the last two are the min/max values used to render colours on the map. |
 
 ### development
