@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
-  <title>GTA Origin/Destnation travel times</title>
+  <title>GTA Origin/Destination Travel Viz</title>
   <style>
     html,
     body {
@@ -12,6 +12,19 @@
       height: 100%;
       width: 100%;
       background-color: #1d2224;
+      overflow: hidden;
+    }
+
+    body > * {
+      transition: opacity 0.5s ease-in-out;
+    }
+
+    body.initializing > *:not(.main-loader) {
+      opacity: 0;
+    }
+
+    body:not(.initializing) > .main-loader {
+      opacity: 0;
     }
 
     #view-tl, #view-tr, #view-br, #view-bl {
@@ -61,15 +74,16 @@
       }
     }
 
-    .loader {
-      z-index: 10;
-      width: 20px;
-      height: 20px;
-      /* position: absolute;
-      top: 50%;
-      left: 50%; */
-      margin-left: -10px;
-      margin-top: -10px;
+    .time-period {
+      position: absolute;
+      bottom: 55px;
+      left: 15px;
+    }
+
+    .variable {
+      position: absolute;
+      bottom: 25px;
+      left: 15px;
     }
 
     .loader-container {
@@ -85,28 +99,27 @@
       align-items: center;
     }
 
-    .time-period {
-      position: absolute;
-      bottom: 55px;
-      left: 15px;
+    .loader-container.main-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
     }
 
-    .variable {
-      position: absolute;
-      bottom: 25px;
-      left: 15px;
+    .loader-container.main-loader div {
+      align-self: center;
+      text-align: center;
     }
 
     .loader,
     .loader:after {
       border-radius: 50%;
-      /* width: 10em;
-      height: 10em; */
     }
     .loader {
+      z-index: 10;
+      width: 20px;
+      height: 20px;
       margin: 60px auto;
       font-size: 10px;
-      position: relative;
       text-indent: -9999em;
       border-top: 1.1em solid rgba(255, 255, 255, 0.2);
       border-right: 1.1em solid rgba(255, 255, 255, 0.2);
@@ -212,6 +225,11 @@
       ODLayer
     ) {
 
+      if (!fetch || !Promise) {
+        alert("This app requires a modern browser (e.g., Chrome, Firefox, Safari, Edge).");
+        return;
+      }
+      
       var maps = window.maps = {};
       var views = window.views = {};
       var od_src = {};
@@ -320,6 +338,14 @@
           view.on("pointer-move", handle_move_event);
           view.on("click", handle_click_event);
           view.on("double-click", handle_double_click_event);
+
+          if (Object.values(od_layer_views).length==4) {
+            var loader = document.querySelector('.main-loader');
+            loader.addEventListener('transitionend', function(){
+              loader.classList.add("hidden");
+            });
+            document.body.classList.remove('initializing');
+          }
         });
 
         view.watch("viewpoint", handle_view_viewpoint);
@@ -471,7 +497,7 @@
   </script>
 </head>
 
-<body>
+<body class="initializing">
   <div id="view-tl"></div>
   <div id="view-tr"></div>
   <div id="view-br"></div>
@@ -568,8 +594,12 @@
   <div class="loader-container view-tr"><div class="loader"></div></div>
   <div class="loader-container view-br"><div class="loader"></div></div>
   <div class="loader-container view-bl"><div class="loader"></div></div>
-  <div class="loader-container main hidden">
-    <div class="esri-widget title">GTA Origin/Destination Travel Viz</div><br />
+  <div class="loader-container main-loader">
+    <div class="esri-widget title">
+      <strong>GTA Origin/Destination Travel Viz</strong>
+      <br /><br />
+      Please wait...
+    </div>
     <div class="loader"></div>
   </div>
 </body>
