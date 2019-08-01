@@ -38,7 +38,7 @@ The constructor for the `ODLayer` class requires an object with the following pr
 | --- | --- |
 | `zone_boundaries` |  FeatureSet JSON object containing polygons with zone identifier attributes  assigned to them. |
 | `zone_id_column` | The name of the attribute to be used as zone identifiers. |
-| `render_colour` | A Colour object compatible with the [`esri/Colour`](https://developers.arcgis.com/javascript/latest/api-reference/esri-Color.html) class (e.g., for red: `{r: 255, g:0, b: 0, a: 1}`), which is used to display zones with +1 standard deviation or better from the mean in terms of travel time or cost (lower values are better).  Zones that fall at or below -1 standard deviation from the mean or lower will be transparent. |
+| `render_colour` | A Colour object compatible with the [`esri/Color`](https://developers.arcgis.com/javascript/latest/api-reference/esri-Color.html) class (e.g., for red: `{r: 255, g:0, b: 0, a: 1}`), which is used to display zones with +1 standard deviation or better from the mean in terms of travel time or cost (lower values are better).  Zones that fall at or below -1 standard deviation from the mean or lower will be transparent. |
 | `zone_data` | An object containing `data` and `zone_ids` properties (outlined above in the data requirements). |
 | `zone` | The identifier of the selected zone to render. |
 | `render_direction_outward` | If true, the layer is rendered to display travel from the selected zone to all others.  If false, the layer is rendered to display travel to the selected zone from all others. |
