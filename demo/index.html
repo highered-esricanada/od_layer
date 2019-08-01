@@ -7,13 +7,26 @@
   <style>
     html,
     body,
-    #viewDiv {
+    #viewDiv, #sceneView {
       padding: 0;
       margin: 0;
       height: 100%;
       width: 100%;
       background-color: #1d2224;
       overflow: hidden;
+    }
+
+    #sceneView {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+    }
+
+    #sceneView.hidden-scene, #sceneView.hidden-scene * {
+      opacity: 0;
+      pointer-events: none;
     }
 
     body > * {
@@ -186,6 +199,8 @@
       "esri/layers/FeatureLayer",
       "esri/layers/VectorTileLayer",
       "esri/views/MapView",
+      "esri/views/SceneView",
+      "esri/layers/SceneLayer",
 
       "ODLayer.js",
 
@@ -196,6 +211,8 @@
       FeatureLayer,
       VectorTileLayer,
       MapView,
+      SceneView,
+      SceneLayer,
 
       ODLayer
     ) {
@@ -217,6 +234,34 @@
         container: "viewDiv",
         map: map,
         extent: {"spatialReference":{"latestWkid":3857,"wkid":102100},"xmin":-8986503.66728125,"ymin":5306392.799259651,"xmax":-8693902.723005736,"ymax":5581260.352973012}
+      });
+
+      var tileLayer2d_scene = new VectorTileLayer({
+        url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
+      });
+
+      var buildings_layer = window.buildings_layer = new SceneLayer({
+        portalItem: {
+          id: "3048e98a234045a384700e87e0f2799b"
+        },
+        popupEnabled: false
+      });
+
+      var scene_map = new Map({
+        layers: [tileLayer2d_scene, buildings_layer]
+      });
+
+      var scene_view = window.scene_view = new SceneView({
+        container: "sceneView",
+        map: scene_map,
+        camera: {"position":{"spatialReference":{"latestWkid":3857,"wkid":102100},"x":-8837846.289481897,"y":5409295.81842679,"z":713.9644009079784},"heading":13.263017786771481,"tilt":69.84569601766563},
+        qualityProfile: "high"
+      });
+
+      var close_scene = document.querySelector(".close-scene");
+      scene_view.ui.add(close_scene, "top-right");
+      close_scene.addEventListener("click", function(){
+        document.querySelector("#sceneView").classList.add("hidden-scene");
       });
 
       function addButton(buttonId, onClick) {
@@ -280,16 +325,61 @@
         update_labels();
       });
 
+      addButton("view3D", function(){
+        show_scene_view();
+      });
+
       addSelect("timePeriod", function(){
         load_od_data().then(function(od_data){
           od_layer.zone_data = od_data;
         });
       });
+
       addSelect("variable", function(){
         load_od_data().then(function(od_data){
           od_layer.zone_data = od_data;
         });
       });
+
+      function show_scene_view()
+      {
+
+        var symbol = {"type":"mesh-3d","symbolLayers":[{"material":{"color":[255,255,255, 0],"colorMixMode":"multiply"},"type":"fill"}]}
+
+        var renderer = {
+          type: "unique-value",
+          defaultSymbol: symbol,
+          field: "TTSZone",
+          uniqueValueInfos: []
+        }
+
+        for (var zone in od_layer.zone_colours)
+        {
+          var colour = od_layer.zone_colours[zone];
+
+          if (zone == od_layer.zone) { // In 2D, the selected zone is white...
+            colour[0] = od_layer.render_colour.r/255;
+            colour[1] = od_layer.render_colour.g/255;
+            colour[2] = od_layer.render_colour.b/255;
+            colour[3] = 1;
+          }
+
+          renderer.uniqueValueInfos.push({
+            value: zone,
+            label: zone,
+            symbol: {"type":"mesh-3d","symbolLayers":[{"material":{"color":[
+              colour[0]*255,
+              colour[1]*255,
+              colour[2]*255,
+              1
+            ],"colorMixMode":"multiply"},"type":"fill"}]}
+          });
+        }
+
+        buildings_layer.renderer = renderer;
+
+        document.querySelector("#sceneView").classList.remove("hidden-scene");
+      }
 
       function update_labels()
       {
@@ -432,6 +522,7 @@
 <body class="initializing">
   <div id="viewDiv"></div>
   <button class="fas fa-exchange-alt esri-widget--button" style="border: 0;" id="switchDirection" type="button" title="Switch direction"></button>
+  <button class="fas fa-cubes esri-widget--button" style="border: 0;" id="view3D" type="button" title="View in 3D"></button>
   <select class="esri-widget" id="timePeriod">
     <option value="AM" selected>AM (6am-9am)</option>
     <option value="MD">Midday (9am-3pm)</option>
@@ -467,5 +558,7 @@
     </div>
     <div class="loader"></div>
   </div>
+  <div id="sceneView" class="hidden-scene"></div>
+  <button class="far fa-window-close esri-widget--button close-scene" style="border: 0;" type="button" title="Close 3D View"></button>
 </body>
 </html>

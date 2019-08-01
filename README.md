@@ -43,11 +43,12 @@ The constructor for the `ODLayer` class requires an object with the following pr
 | `zone` | The identifier of the selected zone to render. |
 | `render_direction_outward` | If true, the layer is rendered to display travel from the selected zone to all others.  If false, the layer is rendered to display travel to the selected zone from all others. |
 
-The `ODLayer` has the following additional watchable property:
+The `ODLayer` has the following additional watchable properties:
 
 | Property | Description |
 | --- | --- |
 | `zone_render_values` | Set as an object that provides the values calculated for the selected origin or destination zone, including the following properties: `min`, `mean`, `max`, `plus1stdev`, `minus1stdev` - the last two are the min/max values used to render colours on the map. |
+| `zone_colours` | This is the dictionary object of raw colours used for drawing the layer's polygon geometries in WebGL - for each zone, there is an array of four values (RGBA) that each range from 0 to 1.  The first three RGB values need to be multiplied by 255 to be used as a colour with ArcGIS JavaScript API |
 
 ### development
 

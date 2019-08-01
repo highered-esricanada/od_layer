@@ -127,6 +127,7 @@ define([
         max: max,
         mean: mean
       };
+      this.layer.zone_colours = zone_colours;
     },
 
     standardDeviation: function(values){
@@ -175,7 +176,8 @@ define([
       zone: {},  // the id of the zone to render
       render_direction_outward: {}, // If true, will render travel from selected zone to all others.  If false, will render travel to selected zone from all others.
       render_colour: {}, // A colour object that is used for the lowest time, lowest cost, etc.  (e.g., for red: {r:255, g:0, b: 0, a: 1})
-      zone_render_values: {} // a watchable property that is updated with the min/max/mean of the currently displayed values, plus the plus1stdev/minus1stdev values used for rendering colours.
+      zone_render_values: {}, // a watchable property that is updated with the min/max/mean of the currently displayed values, plus the plus1stdev/minus1stdev values used for rendering colours.
+      zone_colours: {}  // a watchable property that is the lookup used for applying colours to each zone
     },
 
     constructor() {
