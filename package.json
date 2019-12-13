@@ -23,6 +23,6 @@
     "@types/earcut": "^2.1.0",
     "@types/gl-matrix": "^2.4.5",
     "gl-matrix": "^3.0.0",
-    "npm": "^6.10.2"
+    "npm": "^6.13.4"
   }
 }
