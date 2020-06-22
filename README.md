@@ -18,6 +18,8 @@ To view a single layer, open the following URL (*Caution: this sample downloads 
 
 A second demo presents a 2x2 dashboard-like view allowing you to simultaneously compare four different views (e.g., travel times for four different time periods).  This will load 4x the data as the first demo, and is best viewed on desktop browsers with (give it time to load all of the data): [https://highered-esricanada.github.io/od_layer/demo/dashboard.html](https://highered-esricanada.github.io/od_layer/demo/dashboard.html)
 
+A third demo shows an option added to render values differently, with two gradients for values above/below a specified midpoint.  In this example, the difference between either cost or time associated with driving an automobile vs. taking public transit is calculated between two O/D matrices, and this difference is visualized using a different colour for values above zero (higher cost/time associated with transit) and below zero (higher cost or time associated with driving in an automobile).  Note that this demo will download about ~60-80mb on startup to load two O/D matrices of data: [https://highered-esricanada.github.io/od_layer/demo/difference.html](https://highered-esricanada.github.io/od_layer/demo/difference.html)
+
 ### Data requirements
 
 Zone features must be provided as an input FeatureSet containing polygon geometries and at least one attribute that can be used as a Zone identifier.  Polygon geometries must be single-part polygons - if your data contain multi-part polygons, [explode](https://pro.arcgis.com/en/pro-app/help/editing/explode-a-multipart-feature.htm) them into individual single-part polygons.  Each polygon must be assigned an attribute that can be used as a zone identifier - this does not need to be unique (e.g., in the case of exploded multi-part polygons).
@@ -38,16 +40,17 @@ The constructor for the `ODLayer` class requires an object with the following pr
 | --- | --- |
 | `zone_boundaries` |  FeatureSet JSON object containing polygons with zone identifier attributes  assigned to them. |
 | `zone_id_column` | The name of the attribute to be used as zone identifiers. |
-| `render_colour` | A Colour object compatible with the [`esri/Color`](https://developers.arcgis.com/javascript/latest/api-reference/esri-Color.html) class (e.g., for red: `{r: 255, g:0, b: 0, a: 1}`), which is used to display zones with +1 standard deviation or better from the mean in terms of travel time or cost (lower values are better).  Zones that fall at or below -1 standard deviation from the mean or lower will be transparent. |
+| `render_colour` | A Colour object compatible with the [`esri/Color`](https://developers.arcgis.com/javascript/latest/api-reference/esri-Color.html) class (e.g., for red: `{r: 255, g:0, b: 0, a: 1}`), which is used to display zones with +1 standard deviation or better from the mean in terms of travel time or cost (lower values are better).  Zones that fall at or below -1 standard deviation from the mean or lower will be transparent. If the `render_midpoint` is property is defined (below), then this property must instead be defined as an object with two colour objects assigned as `above` and `below`. |
 | `zone_data` | An object containing `data` and `zone_ids` properties (outlined above in the data requirements). |
 | `zone` | The identifier of the selected zone to render. |
 | `render_direction_outward` | If true, the layer is rendered to display travel from the selected zone to all others.  If false, the layer is rendered to display travel to the selected zone from all others. |
+| `render_midpoint` | If this property is `null` (default) then a single colour gradient using the `render_colour` is applied to the visualization.  If it is set to numerical value, then `render_colour` must be an object with `above` and `below` properties set as colour objects.  The midpoint will be transparent, while colours will be used in gradients that increase in intensity/opacity for values further away from the midpoint, using corresponding `above` and `below` colours. |
 
 The `ODLayer` has the following additional watchable properties:
 
 | Property | Description |
 | --- | --- |
-| `zone_render_values` | Set as an object that provides the values calculated for the selected origin or destination zone, including the following properties: `min`, `mean`, `max`, `plus1stdev`, `minus1stdev` - the last two are the min/max values used to render colours on the map. |
+| `zone_render_values` | Set as an object that provides the values calculated for the selected origin or destination zone, including the following properties: `min`, `mean`, `max`, `plus1stdev`, `minus1stdev`, and `count` - the last two are the min/max values used to render colours on the map. If `render_midpoint` is used, then this will instead be an object with two `above` and `below` properties containing the same values that correspond to values in the data that lie above or below the specified midpoint. |
 | `zone_colours` | This is the dictionary object of raw colours used for drawing the layer's polygon geometries in WebGL - for each zone, there is an array of four values (RGBA) that each range from 0 to 1.  The first three RGB values need to be multiplied by 255 to be used as a colour with ArcGIS JavaScript API |
 
 ### development

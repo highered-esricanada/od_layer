@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>GTA Origin/Destination Travel Viz</title>
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+      background-color: #1d2224;
+      overflow: hidden;
+    }
+
+    body > * {
+      transition: opacity 0.5s ease-in-out;
+    }
+
+    body.initializing > *:not(.main-loader) {
+      opacity: 0;
+    }
+
+    body:not(.initializing) > .main-loader {
+      opacity: 0;
+    }
+
+    #title {
+      font-weight: bold;
+    }
+
+    #title, #subtitle, #instructions, .title {
+      padding: 10px;
+    }
+
+    #instructions {
+      text-align: right;
+      width: 220px;
+    }
+
+    @media (max-width: 500px), (max-height: 500px) {
+      #instructions {
+        display: none;
+      }
+    }
+
+    #timePeriod {
+      position: absolute;
+      bottom: 55px;
+      left: 15px;
+    }
+
+    #variable {
+      position: absolute;
+      bottom: 25px;
+      left: 15px;
+    }
+
+    .loader-container {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 10;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .loader-container.main-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .loader-container.main-loader div {
+      align-self: center;
+      text-align: center;
+    }
+
+    .loader,
+    .loader:after {
+      border-radius: 50%;
+      width: 10em;
+      height: 10em;
+    }
+    .loader {
+      z-index: 10;
+      width: 20px;
+      height: 20px;
+      margin: 60px auto;
+      font-size: 10px;
+      text-indent: -9999em;
+      border-top: 1.1em solid rgba(255, 255, 255, 0.2);
+      border-right: 1.1em solid rgba(255, 255, 255, 0.2);
+      border-bottom: 1.1em solid rgba(255, 255, 255, 0.2);
+      border-left: 1.1em solid #ffffff;
+      -webkit-transform: translateZ(0);
+      -ms-transform: translateZ(0);
+      transform: translateZ(0);
+      -webkit-animation: load8 1.1s infinite linear;
+      animation: load8 1.1s infinite linear;
+    }
+    @-webkit-keyframes load8 {
+      0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg);
+      }
+      100% {
+        -webkit-transform: rotate(360deg);
+        transform: rotate(360deg);
+      }
+    }
+    @keyframes load8 {
+      0% {
+        -webkit-transform: rotate(0deg);
+        transform: rotate(0deg);
+      }
+      100% {
+        -webkit-transform: rotate(360deg);
+        transform: rotate(360deg);
+      }
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    #legend {
+      width: 70px;
+      height: 200px;
+      position: absolute;
+      bottom: 25px;
+      right: 15px;
+    }
+
+    #legend .plus1stdev, #legend .mean, #legend .minus1stdev {
+      position: absolute;
+      right: 25px;
+      text-align: right;
+      font-size: 10px;
+      line-height: 12px;
+      margin-top: -6px;
+    }
+
+    #legend .mean {
+      top: 106px;
+    }
+
+    #legend .plus1stdev {
+      bottom: 24px;
+    }
+
+    #legend .minus1stdev {
+      top: 26px;
+    }
+
+    #legend .colour {
+      position: absolute;
+      width: 19px;
+      top: 3px;
+      right: 3px;
+      bottom: 3px;
+      background-image: linear-gradient(rgba(0,0,0,0) 15%, rgba(0,0,0,0) 85%);
+    }
+
+  </style>
+
+  <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.5/dat.gui.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix.js"></script>
+
+  <!-- PUBLIC API -->
+  <link rel="stylesheet" href="https://jsdev.arcgis.com/4.11/esri/themes/dark/main.css">
+  <script src="https://jsdev.arcgis.com/4.11/"></script>
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/layers/Layer",
+      "esri/layers/FeatureLayer",
+      "esri/layers/VectorTileLayer",
+      "esri/views/MapView",
+      
+      "ODLayer.js",
+
+      "dojo/domReady!"
+    ], function(
+      Map,
+      Layer,
+      FeatureLayer,
+      VectorTileLayer,
+      MapView,
+      
+      ODLayer
+    ) {
+
+      if (!fetch || !Promise) {
+        alert("This app requires a modern browser (e.g., Chrome, Firefox, Safari, Edge).");
+        return;
+      }
+
+      var tileLayer2d = new VectorTileLayer({
+        url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
+      });
+
+      var map = new Map({
+        layers: [tileLayer2d]
+      });
+
+      var view = new MapView({
+        container: "viewDiv",
+        map: map,
+        extent: {"spatialReference":{"latestWkid":3857,"wkid":102100},"xmin":-8986503.66728125,"ymin":5306392.799259651,"xmax":-8693902.723005736,"ymax":5581260.352973012}
+      });
+
+      function addButton(buttonId, onClick) {
+        var btn = document.getElementById(buttonId);
+        view.ui.add(btn, "top-left");
+        btn.addEventListener("click", onClick);
+      }
+
+      function addSelect(selectId, onChange, position) {
+        var select = document.getElementById(selectId);
+        view.ui.add(select, "manual");
+        select.addEventListener("change", onChange);
+      }
+
+      var title = document.getElementById("title");
+      view.ui.add(title, "top-right");
+
+      var subtitle = document.getElementById("subtitle");
+      view.ui.add(subtitle, "top-right");
+
+      var instructions = document.getElementById("instructions");
+      view.ui.add(instructions, "top-right");
+
+      var legend = document.getElementById("legend");
+      view.ui.add(legend, "manual");
+      legend.addEventListener("click", function(){
+        switch_colour();
+      });
+
+      var zone_id_column = 'GTA06';
+      var last_src;
+      var zone_boundaries;
+      var od_layer_view;
+      var od_layer;
+
+      var colours = {
+        red: {r: 255, g:0, b: 0, a:1},
+        yellow: {r: 255, g:255, b: 0, a:1},
+        green: {r: 0, g:255, b: 0, a:1},
+        cyan: {r: 0, g:255, b: 255, a:1},
+        blue: {r: 0, g:0, b: 255, a:1},
+        magenta: {r: 255, g:0, b: 255, a:1}
+      }
+
+      fetch("data/ttsZones.json").then(function(response){
+        console.log('got boundaries');
+        response.json().then(function(data){
+          data.geometryType = "polygon"; // Seems 'esriGeometryTypePolygon' is not accepted
+          data.features = data.features.map(function(f){
+            f.geometry.type = "polygon"; // Seems that we need to specify the geometry type on every feature
+            f.geometry.spatialReference = data.spatialReference;
+            return f;
+          });
+          zone_boundaries = data;
+          begin();
+        });
+      });
+
+      addButton("switchDirection", function(){
+        od_layer.render_direction_outward = !od_layer.render_direction_outward;
+        update_labels();
+      });
+
+      addSelect("timePeriod", function(){
+        load_od_data().then(function(od_data){
+          od_layer.zone_data = od_data;
+        });
+      });
+
+      addSelect("variable", function(){
+        load_od_data().then(function(od_data){
+          od_layer.zone_data = od_data;
+        });
+      });
+
+      function update_labels()
+      {
+        var variable = document.getElementById("variable");
+        var variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
+        if (od_layer.render_direction_outward) {
+          subtitle.innerHTML = variable_label + "Showing values associated with travel<br />from selected zone to all other zones.";
+        } else {
+          subtitle.innerHTML = variable_label + "Showing values associated with travel<br />to selected zone from all other zones";
+        }
+      }
+
+      function switch_colour(view_id) {
+        var all_colours = Object.values(colours);
+        var current_colour_index = all_colours.indexOf(od_layer.render_colour);
+        od_layer.render_colour = all_colours[(current_colour_index+1)%all_colours.length];
+      }
+
+      function load_od_data(){
+
+        var variables = document.getElementById("variable").value.split("|");
+        var timePeriod = document.getElementById("timePeriod");
+        variable.disabled = timePeriod.disabled = true;
+        document.querySelector(".loader-container").classList.remove("hidden");
+
+        last_src = [timePeriod.value + "/" + variables[0], timePeriod.value + "/" + variables[1]];
+        return new Promise(function(resolve, reject){
+          fetch("data/"+last_src[0]+".json").then(function(response){
+            response.json().then(function(od_data){
+              var auto_data = od_data;
+
+              fetch("data/"+last_src[1]+".json").then(function(response){
+                response.json().then(function(od_data){
+                  var transit_data = od_data;
+
+                  document.querySelector(".loader-container").classList.add("hidden");
+                  update_labels();
+                  console.log("got od data");
+                  variable.disabled = timePeriod.disabled = false;
+
+                  var od_data = {data: [], zone_ids: [].concat(auto_data.zone_ids)};
+                  for (var r in od_data.zone_ids) {
+                    od_data.data.push([]);
+                    for (var c in od_data.zone_ids) {
+                      od_data.data[r].push(transit_data.data[r][c] - auto_data.data[r][c]);
+                    }
+                  }
+                  resolve(od_data);
+                });
+              });
+            });
+          });
+        });
+
+      }
+
+      function begin()
+      {
+        console.log('begin');
+
+        var zones_featurelayer = new FeatureLayer({
+          objectIdField: "OBJECTID",
+          source: zone_boundaries.features,
+          fields: zone_boundaries.fields,
+          renderer:  {
+            type: "simple",
+            symbol: {
+              type: "simple-fill",
+              color: [0,0,0,0],
+              style: "solid",
+              outline: { color: [0,0,0,0], width: 0.3 }
+            }
+          }
+        });
+
+        od_layer = new ODLayer({
+          zone_boundaries: zone_boundaries,
+          zone_id_column: zone_id_column,
+          render_colour: {above: colours.magenta, below: colours.yellow},
+          render_midpoint: 0
+        });
+
+        od_layer.watch("zone_render_values", update_legend);
+
+        load_od_data().then(function(od_data){
+          od_layer.zone_data = od_data;
+        });
+
+        view.map.addMany([zones_featurelayer, od_layer]);
+
+        view.whenLayerView(od_layer).then(function(layer_view){
+          od_layer_view = layer_view;
+          window.od_layer_view = od_layer_view;
+          window.od_layer = od_layer;
+          view.whenLayerView(zones_featurelayer).then(function(){
+            view.on("pointer-move", handle_move_event);
+            view.on("click", handle_click_event);
+            view.on("double-click", handle_double_click_event);
+
+            var loader = document.querySelector('.main-loader');
+            loader.addEventListener('transitionend', function(){
+              loader.classList.add("hidden");
+            });
+            document.body.classList.remove('initializing');
+          });
+        });
+
+        var paused = false;
+
+        function handle_move_event(event){
+          if (paused) return;
+          view.hitTest(event).then(handle_hit_test);
+        }
+
+        function handle_click_event(event){
+          view.hitTest(event).then(handle_hit_test);
+        }
+
+        function handle_double_click_event(event){
+          paused = !paused;
+          event.stopPropagation();
+        }
+
+        function handle_hit_test(response){
+          var zone_graphics = response.results.filter(function(r){
+            return r.graphic.layer === zones_featurelayer;
+          });
+          if (zone_graphics.length) {
+            od_layer.zone = zone_graphics[0].graphic.attributes[zone_id_column];
+          }
+        }
+
+        function update_legend(values) {
+
+          if (od_layer.render_midpoint == null) {
+            var mean = document.querySelector('#legend .mean');
+            var plus1stdev = document.querySelector('#legend .plus1stdev');
+            var minus1stdev = document.querySelector('#legend .minus1stdev');
+
+            var colour = document.querySelector("#legend .colour");
+
+            mean.innerHTML = Math.round(values.mean*100)/100 || "-";
+            plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
+            minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
+
+            var red = od_layer.render_colour.r;
+            var green = od_layer.render_colour.g;
+            var blue = od_layer.render_colour.b;
+            var alpha = od_layer.render_colour.a;
+
+            colour.style.backgroundImage =
+              "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
+          } else {
+
+            var mean = document.querySelector('#legend .mean');
+            var plus1stdev = document.querySelector('#legend .plus1stdev');
+            var minus1stdev = document.querySelector('#legend .minus1stdev');
+
+            var colour = document.querySelector("#legend .colour");
+
+            mean.innerHTML = od_layer.render_midpoint;
+            plus1stdev.innerHTML = Math.round(values.above.plus1stdev*100)/100 || "-";
+            minus1stdev.innerHTML = Math.round(values.below.minus1stdev*100)/100 || "-";
+
+            var above_red = od_layer.render_colour.above.r;
+            var above_green = od_layer.render_colour.above.g;
+            var above_blue = od_layer.render_colour.above.b;
+            var above_alpha = od_layer.render_colour.above.a;
+
+            var below_red = od_layer.render_colour.below.r;
+            var below_green = od_layer.render_colour.below.g;
+            var below_blue = od_layer.render_colour.below.b;
+            var below_alpha = od_layer.render_colour.below.a;
+
+            colour.style.backgroundImage =
+              "linear-gradient(rgba("+below_red+","+below_green+","+below_blue+","+below_alpha+") 15%, rgba(0,0,0,0) 50%, rgba("+above_red+","+above_green+","+above_blue+","+above_alpha+") 85%";
+
+          }
+        }
+      }
+    });
+  </script>
+</head>
+
+<body class="initializing">
+  <div id="viewDiv"></div>
+  <button class="fas fa-exchange-alt esri-widget--button" style="border: 0;" id="switchDirection" type="button" title="Switch direction"></button>
+  <button class="fas fa-cubes esri-widget--button" style="border: 0;" id="view3D" type="button" title="View in 3D"></button>
+  <select class="esri-widget" id="timePeriod">
+    <option value="AM" selected>AM (6am-9am)</option>
+    <option value="MD">Midday (9am-3pm)</option>
+    <option value="PM">PM (3pm-7pm)</option>
+    <option value="EV">Evening (7pm-12am)</option>
+  </select>
+  <select class="esri-widget" id="variable">
+    <option value="Auto/atime|Transit/true_transit_time" selected>Auto vs Transit: Travel time (minutes)</option>
+    <option value="Auto/acost|Transit/tfare">Auto vs Transit: Cost/Fare (2011 $)</option>
+  </select>
+  <div class="esri-widget" id="title">GTA Origin/Destination Travel Viz</div>
+  <div class="esri-widget" id="subtitle">Loading data...</div>
+  <div class="esri-widget" id="instructions">
+    Double-click to pause/resume mouseover-selection.<br />
+    Click to select a zone while mouseover is paused.
+  </div>
+  <div class="esri-widget" id="legend">
+    <div class="plus1stdev">-</div>
+    <div class="mean">-</div>
+    <div class="minus1stdev">-</div>
+    <div class="colour"></div>
+  </div>
+  <div class="loader-container"><div class="loader"></div></div>
+  <div class="loader-container main-loader">
+    <div class="esri-widget title">
+      <strong>GTA Origin/Destination Travel Viz</strong>
+      <br /><br />
+      Please wait...
+    </div>
+    <div class="loader"></div>
+  </div>
+</body>
+</html>

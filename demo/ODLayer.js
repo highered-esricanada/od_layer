@@ -26,6 +26,7 @@ define([
       this.watch_zone_data = this.layer.watch("zone_data", re_render);
       this.watch_direction = this.layer.watch("render_direction_outward", re_render);
       this.watch_colour = this.layer.watch("render_colour", re_render);
+      this.watch_render_midpoint = this.layer.watch('render_midpoint', re_render);
       this.watch_zone = this.layer.watch("zone", re_render);
 
       const app = new engine.Application();
@@ -40,6 +41,7 @@ define([
       this.watch_direction.remove();
       this.watch_colour.remove();
       this.watch_zone.remove();
+      this.watch_render_midpoint.remove();
 
       this.app.dispose();
       this.app = null;
@@ -92,42 +94,120 @@ define([
         });
       }
 
-      var stdev = this.standardDeviation(zone_values);
-      var mean = this.average(zone_values);
-      var minus1stdev = mean - stdev;
-      var plus1stdev = mean + stdev;
-      var min = zone_values[0];
-      var max = zone_values[0];
+      if (this.layer.render_midpoint == null) {
+        var stdev = this.standardDeviation(zone_values);
+        var mean = this.average(zone_values);
+        var minus1stdev = mean - stdev;
+        var plus1stdev = mean + stdev;
+        var min = this.min(zone_values);
+        var max = this.max(zone_values);
 
-      for (var zone_index in zone_values)
-      {
+        for (var zone_index in zone_values)
+        {
 
-        var zone_value = zone_values[zone_index];
-        var src_colour = this.layer.render_colour || {r: 255, g: 0, b: 0, a: 1};
-        var multiplier = 1-(zone_value - minus1stdev)/(plus1stdev - minus1stdev);
-        var red = src_colour.r/255 * multiplier;
-        var green = src_colour.g/255 * multiplier;
-        var blue = src_colour.b/255 * multiplier;
-        var alpha = src_colour.a * multiplier;
-
-        min = Math.min(min, zone_value);
-        max = Math.max(max, zone_value);
+          var zone_value = zone_values[zone_index];
+          var src_colour = this.layer.render_colour || {r: 255, g: 0, b: 0, a: 1};
+          var multiplier = 1-(zone_value - minus1stdev)/(plus1stdev - minus1stdev);
+          var red = src_colour.r/255 * multiplier;
+          var green = src_colour.g/255 * multiplier;
+          var blue = src_colour.b/255 * multiplier;
+          var alpha = src_colour.a * multiplier;
 
 
-        var zone_id = this.layer.zone_data.zone_ids[zone_index];
-        if (render_zone_id == zone_id) zone_colours[zone_id] = [1, 1, 1, 0.7];
-        else zone_colours[zone_id] = [red, green, blue, alpha];
+          var zone_id = this.layer.zone_data.zone_ids[zone_index];
+          if (render_zone_id == zone_id) zone_colours[zone_id] = [1, 1, 1, 0.7];
+          else zone_colours[zone_id] = [red, green, blue, alpha];
+        }
+
+        this.app.setColours(zone_colours);
+        this.layer.zone_render_values = {
+          minus1stdev: minus1stdev,
+          plus1stdev: plus1stdev,
+          min: min,
+          max: max,
+          mean: mean
+        };
+        this.layer.zone_colours = zone_colours;
+
+      } else {
+
+        // NOTE: need to deal with case where too few values are above or below the specified midpoint...
+
+        var above_values = zone_values.filter(function(value){ return value > this.layer.render_midpoint; }, this);
+        var below_values = zone_values.filter(function(value){ return value < this.layer.render_midpoint; }, this);
+        
+        var above_stdev = this.standardDeviation(above_values);
+        var above_mean = this.average(above_values);
+        var above_minus1stdev = above_mean - above_stdev;
+        var above_plus1stdev = above_mean + above_stdev;
+        var above_min = this.min(above_values);
+        var above_max = this.max(above_values);
+
+        var below_stdev = this.standardDeviation(below_values);
+        var below_mean = this.average(below_values);
+        var below_minus1stdev = below_mean - below_stdev;
+        var below_plus1stdev = below_mean + below_stdev;
+        var below_min = this.min(below_values);
+        var below_max = this.max(below_values);
+
+        for (var zone_index in zone_values)
+        {
+          var zone_value = zone_values[zone_index];
+          var zone_id = this.layer.zone_data.zone_ids[zone_index];
+          
+          if (render_zone_id == zone_id) zone_colours[zone_id] = [1, 1, 1, 0.7];
+          else if (zone_value == this.layer.render_midpoint) zone_colours[zone_id] = [0, 0, 0, 0];
+          else {
+
+            if (zone_value > this.layer.render_midpoint) {
+
+              var src_colour = this.layer.render_colour.above || {r: 255, g: 0, b: 0, a: 1};
+              var multiplier = (zone_value - above_minus1stdev)/(above_plus1stdev - above_minus1stdev);
+              
+              var red = src_colour.r/255 * multiplier;
+              var green = src_colour.g/255 * multiplier;
+              var blue = src_colour.b/255 * multiplier;
+              var alpha = src_colour.a * multiplier;
+
+              zone_colours[zone_id] = [red, green, blue, alpha]
+
+            } else {
+
+              var src_colour = this.layer.render_colour.below || {r: 0, g: 0, b: 255, a: 1};
+              var multiplier = (zone_value - below_plus1stdev)/(below_minus1stdev - below_plus1stdev);
+              
+              var red = src_colour.r/255 * multiplier;
+              var green = src_colour.g/255 * multiplier;
+              var blue = src_colour.b/255 * multiplier;
+              var alpha = src_colour.a * multiplier;
+
+              zone_colours[zone_id] = [red, green, blue, alpha]
+
+            } 
+          }
+        }
+
+        this.app.setColours(zone_colours);
+        this.layer.zone_render_values = {
+          above: {
+            minus1stdev: above_minus1stdev,
+            plus1stdev: above_plus1stdev,
+            min: above_min,
+            max: above_max,
+            mean: above_mean,
+            count: above_values.length
+          },
+          below: {
+            minus1stdev: below_minus1stdev,
+            plus1stdev: below_plus1stdev,
+            min: below_min,
+            max: below_max,
+            mean: below_mean,
+            count: below_values.length
+          }
+        };
+        this.layer.zone_colours = zone_colours;
       }
-
-      this.app.setColours(zone_colours);
-      this.layer.zone_render_values = {
-        minus1stdev: minus1stdev,
-        plus1stdev: plus1stdev,
-        min: min,
-        max: max,
-        mean: mean
-      };
-      this.layer.zone_colours = zone_colours;
     },
 
     standardDeviation: function(values){
@@ -152,7 +232,21 @@ define([
 
       var avg = sum / data.length;
       return avg;
-    } //,
+    },
+
+    min: function(data)
+    {
+      return data.reduce(function(max, value){
+        return Math.min(max, value);
+      }, data[0]);
+    },
+
+    max: function(data)
+    {
+      return data.reduce(function(max, value){
+        return Math.max(max, value);
+      }, data[0]);
+    }
 
     // // Hit testing on the regular feature layer is faster than this...
     //hitTest: function(x, y) {
@@ -175,9 +269,10 @@ define([
       zone_data: {},  // an object with two properties: data: a 2-dimensional array of values for representing traveling from each origin zone (rows) to all destination zones (columns), zone_ids (a list of zone_ids that are in the same order as rows/columns of the data)
       zone: {},  // the id of the zone to render
       render_direction_outward: {}, // If true, will render travel from selected zone to all others.  If false, will render travel to selected zone from all others.
-      render_colour: {}, // A colour object that is used for the lowest time, lowest cost, etc.  (e.g., for red: {r:255, g:0, b: 0, a: 1})
+      render_colour: {}, // A colour object that is used for the lowest time, lowest cost, etc.  (e.g., for red: {r:255, g:0, b: 0, a: 1}).  If render_midpoint is set (below), it could be an object with two properties 'above' and 'below' that contain colour objects.
       zone_render_values: {}, // a watchable property that is updated with the min/max/mean of the currently displayed values, plus the plus1stdev/minus1stdev values used for rendering colours.
-      zone_colours: {}  // a watchable property that is the lookup used for applying colours to each zone
+      zone_colours: {},  // a watchable property that is the lookup used for applying colours to each zone
+      render_midpoint: null // a watchable property - if not null, it is expected to be a numerical value representing the midpoint used for classifying above/below values.
     },
 
     constructor() {
