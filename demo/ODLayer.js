@@ -65,7 +65,7 @@ define([
       );
 
       this.app.render(renderParameters.context);
-      this.requestRender();
+      //this.requestRender();
     },
 
     render_zone: function(render_zone_id, force) {
