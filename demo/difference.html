@@ -160,7 +160,7 @@
       top: 26px;
     }
 
-    #legend .colour {
+    #legend .color {
       position: absolute;
       width: 19px;
       top: 3px;
@@ -172,12 +172,9 @@
   </style>
 
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.5/dat.gui.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix.js"></script>
 
-  <!-- PUBLIC API -->
-  <link rel="stylesheet" href="https://jsdev.arcgis.com/4.11/esri/themes/dark/main.css">
-  <script src="https://jsdev.arcgis.com/4.11/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/dark/main.css"/>
+  <script src="https://js.arcgis.com/4.18/"></script>
 
   <script>
     require([
@@ -186,8 +183,8 @@
       "esri/layers/FeatureLayer",
       "esri/layers/VectorTileLayer",
       "esri/views/MapView",
-      
-      "ODLayer.js",
+
+      "../src/ODLayer.js",
 
       "dojo/domReady!"
     ], function(
@@ -196,7 +193,7 @@
       FeatureLayer,
       VectorTileLayer,
       MapView,
-      
+
       ODLayer
     ) {
 
@@ -205,54 +202,54 @@
         return;
       }
 
-      var tileLayer2d = new VectorTileLayer({
+      const tileLayer2d = new VectorTileLayer({
         url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
       });
 
-      var map = new Map({
+      const map = new Map({
         layers: [tileLayer2d]
       });
 
-      var view = new MapView({
+      const view = new MapView({
         container: "viewDiv",
         map: map,
         extent: {"spatialReference":{"latestWkid":3857,"wkid":102100},"xmin":-8986503.66728125,"ymin":5306392.799259651,"xmax":-8693902.723005736,"ymax":5581260.352973012}
       });
 
       function addButton(buttonId, onClick) {
-        var btn = document.getElementById(buttonId);
+        const btn = document.getElementById(buttonId);
         view.ui.add(btn, "top-left");
         btn.addEventListener("click", onClick);
       }
 
       function addSelect(selectId, onChange, position) {
-        var select = document.getElementById(selectId);
+        const select = document.getElementById(selectId);
         view.ui.add(select, "manual");
         select.addEventListener("change", onChange);
       }
 
-      var title = document.getElementById("title");
+      const title = document.getElementById("title");
       view.ui.add(title, "top-right");
 
-      var subtitle = document.getElementById("subtitle");
+      const subtitle = document.getElementById("subtitle");
       view.ui.add(subtitle, "top-right");
 
-      var instructions = document.getElementById("instructions");
+      const instructions = document.getElementById("instructions");
       view.ui.add(instructions, "top-right");
 
-      var legend = document.getElementById("legend");
+      const legend = document.getElementById("legend");
       view.ui.add(legend, "manual");
       legend.addEventListener("click", function(){
-        switch_colour();
+        switch_color();
       });
 
-      var zone_id_column = 'GTA06';
-      var last_src;
-      var zone_boundaries;
-      var od_layer_view;
-      var od_layer;
+      const zone_id_column = 'GTA06';
+      let last_src = null;
+      let zone_boundaries = null;
+      let od_layer_view = null;
+      let od_layer = null;
 
-      var colours = {
+      const colors = {
         red: {r: 255, g:0, b: 0, a:1},
         yellow: {r: 255, g:255, b: 0, a:1},
         green: {r: 0, g:255, b: 0, a:1},
@@ -294,8 +291,8 @@
 
       function update_labels()
       {
-        var variable = document.getElementById("variable");
-        var variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
+        const variable = document.getElementById("variable");
+        const variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
         if (od_layer.render_direction_outward) {
           subtitle.innerHTML = variable_label + "Showing values associated with travel<br />from selected zone to all other zones.";
         } else {
@@ -303,16 +300,29 @@
         }
       }
 
-      function switch_colour(view_id) {
-        var all_colours = Object.values(colours);
-        var current_colour_index = all_colours.indexOf(od_layer.render_colour);
-        od_layer.render_colour = all_colours[(current_colour_index+1)%all_colours.length];
+      function switch_color(view_id) {
+        const all_colors = Object.values(colors);
+        const current_color_index = all_colors.indexOf(od_layer.render_midpoint==null?od_layer.render_color:od_layer.render_color.above);
+        variable.disabled = timePeriod.disabled = true;
+        document.querySelector(".loader-container").classList.remove("hidden");
+
+        od_layer.once('color-table-updated', function(){
+          document.querySelector(".loader-container").classList.add("hidden");
+          variable.disabled = timePeriod.disabled = false;
+        });
+
+        setTimeout(function(){
+          od_layer.render_color = {
+            above: all_colors[(current_color_index+1)%all_colors.length],
+            below: all_colors[(current_color_index+3)%all_colors.length]
+          };
+        }, 100);
       }
 
       function load_od_data(){
 
-        var variables = document.getElementById("variable").value.split("|");
-        var timePeriod = document.getElementById("timePeriod");
+        const variables = document.getElementById("variable").value.split("|");
+        const timePeriod = document.getElementById("timePeriod");
         variable.disabled = timePeriod.disabled = true;
         document.querySelector(".loader-container").classList.remove("hidden");
 
@@ -320,25 +330,25 @@
         return new Promise(function(resolve, reject){
           fetch("data/"+last_src[0]+".json").then(function(response){
             response.json().then(function(od_data){
-              var auto_data = od_data;
+              const auto_data = od_data;
 
               fetch("data/"+last_src[1]+".json").then(function(response){
                 response.json().then(function(od_data){
-                  var transit_data = od_data;
+                  const transit_data = od_data;
 
                   document.querySelector(".loader-container").classList.add("hidden");
                   update_labels();
                   console.log("got od data");
                   variable.disabled = timePeriod.disabled = false;
 
-                  var od_data = {data: [], zone_ids: [].concat(auto_data.zone_ids)};
-                  for (var r in od_data.zone_ids) {
-                    od_data.data.push([]);
-                    for (var c in od_data.zone_ids) {
-                      od_data.data[r].push(transit_data.data[r][c] - auto_data.data[r][c]);
+                  const od_diff = {data: [], zone_ids: [].concat(auto_data.zone_ids)};
+                  for (const r in od_diff.zone_ids) {
+                    od_diff.data.push([]);
+                    for (const c in od_diff.zone_ids) {
+                      od_diff.data[r].push(transit_data.data[r][c] - auto_data.data[r][c]);
                     }
                   }
-                  resolve(od_data);
+                  resolve(od_diff);
                 });
               });
             });
@@ -351,7 +361,7 @@
       {
         console.log('begin');
 
-        var zones_featurelayer = new FeatureLayer({
+        const zones_featurelayer = new FeatureLayer({
           objectIdField: "OBJECTID",
           source: zone_boundaries.features,
           fields: zone_boundaries.fields,
@@ -361,7 +371,7 @@
               type: "simple-fill",
               color: [0,0,0,0],
               style: "solid",
-              outline: { color: [0,0,0,0], width: 0.3 }
+              outline: { color: [200,200,200,.4], width: 0.2 }
             }
           }
         });
@@ -369,8 +379,11 @@
         od_layer = new ODLayer({
           zone_boundaries: zone_boundaries,
           zone_id_column: zone_id_column,
-          render_colour: {above: colours.magenta, below: colours.yellow},
-          render_midpoint: 0
+          render_color: {above: colors.magenta, below: colors.yellow},
+          render_midpoint: 0,
+          render_border: false,
+          click_enabled: false,
+          hover_enabled: false
         });
 
         od_layer.watch("zone_render_values", update_legend);
@@ -383,14 +396,13 @@
 
         view.whenLayerView(od_layer).then(function(layer_view){
           od_layer_view = layer_view;
-          window.od_layer_view = od_layer_view;
-          window.od_layer = od_layer;
+
           view.whenLayerView(zones_featurelayer).then(function(){
-            view.on("pointer-move", handle_move_event);
-            view.on("click", handle_click_event);
+            od_layer.click_enabled = true;
+            od_layer.hover_enabled = true;
             view.on("double-click", handle_double_click_event);
 
-            var loader = document.querySelector('.main-loader');
+            const loader = document.querySelector('.main-loader');
             loader.addEventListener('transitionend', function(){
               loader.classList.add("hidden");
             });
@@ -398,74 +410,48 @@
           });
         });
 
-        var paused = false;
-
-        function handle_move_event(event){
-          if (paused) return;
-          view.hitTest(event).then(handle_hit_test);
-        }
-
-        function handle_click_event(event){
-          view.hitTest(event).then(handle_hit_test);
-        }
-
         function handle_double_click_event(event){
-          paused = !paused;
+          od_layer.hover_enabled = !od_layer.hover_enabled;
           event.stopPropagation();
-        }
-
-        function handle_hit_test(response){
-          var zone_graphics = response.results.filter(function(r){
-            return r.graphic.layer === zones_featurelayer;
-          });
-          if (zone_graphics.length) {
-            od_layer.zone = zone_graphics[0].graphic.attributes[zone_id_column];
-          }
         }
 
         function update_legend(values) {
 
+          const mean = document.querySelector('#legend .mean');
+          const plus1stdev = document.querySelector('#legend .plus1stdev');
+          const minus1stdev = document.querySelector('#legend .minus1stdev');
+
+          const color = document.querySelector("#legend .color");
+
           if (od_layer.render_midpoint == null) {
-            var mean = document.querySelector('#legend .mean');
-            var plus1stdev = document.querySelector('#legend .plus1stdev');
-            var minus1stdev = document.querySelector('#legend .minus1stdev');
-
-            var colour = document.querySelector("#legend .colour");
-
             mean.innerHTML = Math.round(values.mean*100)/100 || "-";
             plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
             minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
 
-            var red = od_layer.render_colour.r;
-            var green = od_layer.render_colour.g;
-            var blue = od_layer.render_colour.b;
-            var alpha = od_layer.render_colour.a;
+            const red = od_layer.render_color.r;
+            const green = od_layer.render_color.g;
+            const blue = od_layer.render_color.b;
+            const alpha = od_layer.render_color.a;
 
-            colour.style.backgroundImage =
+            color.style.backgroundImage =
               "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
           } else {
-
-            var mean = document.querySelector('#legend .mean');
-            var plus1stdev = document.querySelector('#legend .plus1stdev');
-            var minus1stdev = document.querySelector('#legend .minus1stdev');
-
-            var colour = document.querySelector("#legend .colour");
 
             mean.innerHTML = od_layer.render_midpoint;
             plus1stdev.innerHTML = Math.round(values.above.plus1stdev*100)/100 || "-";
             minus1stdev.innerHTML = Math.round(values.below.minus1stdev*100)/100 || "-";
 
-            var above_red = od_layer.render_colour.above.r;
-            var above_green = od_layer.render_colour.above.g;
-            var above_blue = od_layer.render_colour.above.b;
-            var above_alpha = od_layer.render_colour.above.a;
+            const above_red = od_layer.render_color.above.r;
+            const above_green = od_layer.render_color.above.g;
+            const above_blue = od_layer.render_color.above.b;
+            const above_alpha = od_layer.render_color.above.a;
 
-            var below_red = od_layer.render_colour.below.r;
-            var below_green = od_layer.render_colour.below.g;
-            var below_blue = od_layer.render_colour.below.b;
-            var below_alpha = od_layer.render_colour.below.a;
+            const below_red = od_layer.render_color.below.r;
+            const below_green = od_layer.render_color.below.g;
+            const below_blue = od_layer.render_color.below.b;
+            const below_alpha = od_layer.render_color.below.a;
 
-            colour.style.backgroundImage =
+            color.style.backgroundImage =
               "linear-gradient(rgba("+below_red+","+below_green+","+below_blue+","+below_alpha+") 15%, rgba(0,0,0,0) 50%, rgba("+above_red+","+above_green+","+above_blue+","+above_alpha+") 85%";
 
           }
@@ -499,7 +485,7 @@
     <div class="plus1stdev">-</div>
     <div class="mean">-</div>
     <div class="minus1stdev">-</div>
-    <div class="colour"></div>
+    <div class="color"></div>
   </div>
   <div class="loader-container"><div class="loader"></div></div>
   <div class="loader-container main-loader">

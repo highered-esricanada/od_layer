@@ -173,7 +173,7 @@
       top: 26px;
     }
 
-    #legend .colour {
+    #legend .color {
       position: absolute;
       width: 19px;
       top: 3px;
@@ -185,12 +185,9 @@
   </style>
 
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.5/dat.gui.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix.js"></script>
 
-  <!-- PUBLIC API -->
-  <link rel="stylesheet" href="https://jsdev.arcgis.com/4.11/esri/themes/dark/main.css">
-  <script src="https://jsdev.arcgis.com/4.11/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/dark/main.css"/>
+  <script src="https://js.arcgis.com/4.18/"></script>
 
   <script>
     require([
@@ -202,7 +199,7 @@
       "esri/views/SceneView",
       "esri/layers/SceneLayer",
 
-      "ODLayer.js",
+      "../src/ODLayer.js",
 
       "dojo/domReady!"
     ], function(
@@ -222,82 +219,82 @@
         return;
       }
 
-      var tileLayer2d = new VectorTileLayer({
+      const tileLayer2d = new VectorTileLayer({
         url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
       });
 
-      var map = new Map({
+      const map = new Map({
         layers: [tileLayer2d]
       });
 
-      var view = new MapView({
+      const view = new MapView({
         container: "viewDiv",
         map: map,
-        extent: {"spatialReference":{"latestWkid":3857,"wkid":102100},"xmin":-8986503.66728125,"ymin":5306392.799259651,"xmax":-8693902.723005736,"ymax":5581260.352973012}
+        extent: {"spatialReference":{"wkid":3857},"xmin":-8986500,"ymin":5306390,"xmax":-8693900,"ymax":5581260}
       });
 
-      var tileLayer2d_scene = new VectorTileLayer({
+      const tileLayer2d_scene = new VectorTileLayer({
         url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
       });
 
-      var buildings_layer = window.buildings_layer = new SceneLayer({
+      const buildings_layer = window.buildings_layer = new SceneLayer({
         portalItem: {
           id: "3048e98a234045a384700e87e0f2799b"
         },
         popupEnabled: false
       });
 
-      var scene_map = new Map({
+      const scene_map = new Map({
         layers: [tileLayer2d_scene, buildings_layer]
       });
 
-      var scene_view = window.scene_view = new SceneView({
+      const scene_view = window.scene_view = new SceneView({
         container: "sceneView",
         map: scene_map,
-        camera: {"position":{"spatialReference":{"latestWkid":3857,"wkid":102100},"x":-8837846.289481897,"y":5409295.81842679,"z":713.9644009079784},"heading":13.263017786771481,"tilt":69.84569601766563},
+        camera: {"position":{"spatialReference":{"wkid":3857},"x":-8837840,"y":5409295,"z":715},"heading":13.25,"tilt":70},
         qualityProfile: "high"
       });
 
-      var close_scene = document.querySelector(".close-scene");
+      const close_scene = document.querySelector(".close-scene");
       scene_view.ui.add(close_scene, "top-right");
       close_scene.addEventListener("click", function(){
         document.querySelector("#sceneView").classList.add("hidden-scene");
       });
 
       function addButton(buttonId, onClick) {
-        var btn = document.getElementById(buttonId);
+        const btn = document.getElementById(buttonId);
         view.ui.add(btn, "top-left");
         btn.addEventListener("click", onClick);
       }
 
       function addSelect(selectId, onChange, position) {
-        var select = document.getElementById(selectId);
+        const select = document.getElementById(selectId);
         view.ui.add(select, "manual");
         select.addEventListener("change", onChange);
       }
 
-      var title = document.getElementById("title");
+      const title = document.getElementById("title");
       view.ui.add(title, "top-right");
 
-      var subtitle = document.getElementById("subtitle");
+      const subtitle = document.getElementById("subtitle");
       view.ui.add(subtitle, "top-right");
 
-      var instructions = document.getElementById("instructions");
+      const instructions = document.getElementById("instructions");
       view.ui.add(instructions, "top-right");
 
-      var legend = document.getElementById("legend");
+      const legend = document.getElementById("legend");
       view.ui.add(legend, "manual");
       legend.addEventListener("click", function(){
-        switch_colour();
+        switch_color();
       });
 
-      var zone_id_column = 'GTA06';
-      var last_src;
-      var zone_boundaries;
-      var od_layer_view;
-      var od_layer;
+      const zone_id_column = 'GTA06';
+      let last_src = null;
+      let zone_boundaries = null;
+      let od_layer_view = null;
+      let od_layer = null;
 
-      var colours = {
+      const colors = {
         red: {r: 255, g:0, b: 0, a:1},
         yellow: {r: 255, g:255, b: 0, a:1},
         green: {r: 0, g:255, b: 0, a:1},
@@ -307,14 +304,7 @@
       }
 
       fetch("data/ttsZones.json").then(function(response){
-        console.log('got boundaries');
         response.json().then(function(data){
-          data.geometryType = "polygon"; // Seems 'esriGeometryTypePolygon' is not accepted
-          data.features = data.features.map(function(f){
-            f.geometry.type = "polygon"; // Seems that we need to specify the geometry type on every feature
-            f.geometry.spatialReference = data.spatialReference;
-            return f;
-          });
           zone_boundaries = data;
           begin();
         });
@@ -344,33 +334,48 @@
       function show_scene_view()
       {
 
-        var symbol = {"type":"mesh-3d","symbolLayers":[{"material":{"color":[255,255,255, 0],"colorMixMode":"multiply"},"type":"fill"}]}
+        const symbol = {"type":"mesh-3d","symbolLayers":[{"material":{"color":[255,255,255, 0],"colorMixMode":"multiply"},"type":"fill"}]}
 
-        var renderer = {
+        const renderer = {
           type: "unique-value",
           defaultSymbol: symbol,
           field: "TTSZone",
           uniqueValueInfos: []
         }
 
-        for (var zone in od_layer.zone_colours)
-        {
-          var colour = od_layer.zone_colours[zone];
+        let active_feature_index = -1;
+        for (let i = 0; i < od_layer.zone_boundaries.features.length; i++) {
+          if (od_layer.active_zone_id == od_layer.zone_boundaries.features[i].attributes[od_layer.zone_id_column]) {
+            active_feature_index = i;
+          }
+        }
+        for (let feature_index = 0; feature_index < od_layer.zone_boundaries.features.length; feature_index++) {
+          let offset = 0;
+          if (od_layer.render_direction_outward) {
+            // Active feature index is the row, and current feature index is the column
+            offset += active_feature_index * 4 * od_layer.zone_boundaries.features.length + feature_index * 4;
+          } else {
+            // Active feature index is the column, and current feature index is the row
+            offset += feature_index * 4 * od_layer.zone_boundaries.features.length + active_feature_index * 4;
+          }
 
-          if (zone == od_layer.zone) { // In 2D, the selected zone is white...
-            colour[0] = od_layer.render_colour.r/255;
-            colour[1] = od_layer.render_colour.g/255;
-            colour[2] = od_layer.render_colour.b/255;
-            colour[3] = 1;
+          const color = od_layer.zone_colors.slice(offset, offset + 4);
+          const zone = od_layer.zone_boundaries.features[feature_index].attributes[od_layer.zone_id_column];
+
+          if (zone == od_layer.active_zone_id) { // In 2D, the selected zone is white by default...
+            color[0] = 255;
+            color[1] = 255;
+            color[2] = 255;
+            color[3] = 1;
           }
 
           renderer.uniqueValueInfos.push({
             value: zone,
             label: zone,
             symbol: {"type":"mesh-3d","symbolLayers":[{"material":{"color":[
-              colour[0]*255,
-              colour[1]*255,
-              colour[2]*255,
+              color[0],
+              color[1],
+              color[2],
               1
             ],"colorMixMode":"multiply"},"type":"fill"}]}
           });
@@ -383,8 +388,8 @@
 
       function update_labels()
       {
-        var variable = document.getElementById("variable");
-        var variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
+        const variable = document.getElementById("variable");
+        const variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
         if (od_layer.render_direction_outward) {
           subtitle.innerHTML = variable_label + "Showing values associated with travel<br />from selected zone to all other zones.";
         } else {
@@ -392,16 +397,26 @@
         }
       }
 
-      function switch_colour(view_id) {
-        var all_colours = Object.values(colours);
-        var current_colour_index = all_colours.indexOf(od_layer.render_colour);
-        od_layer.render_colour = all_colours[(current_colour_index+1)%all_colours.length];
+      function switch_color(view_id) {
+        const all_colors = Object.values(colors);
+        const current_color_index = all_colors.indexOf(od_layer.render_color);
+        variable.disabled = timePeriod.disabled = true;
+        document.querySelector(".loader-container").classList.remove("hidden");
+
+        od_layer.once('color-table-updated', function(){
+          document.querySelector(".loader-container").classList.add("hidden");
+          variable.disabled = timePeriod.disabled = false;
+        });
+
+        setTimeout(function(){
+          od_layer.render_color = all_colors[(current_color_index+1)%all_colors.length];
+        }, 100);
       }
 
       function load_od_data(){
 
-        var variable = document.getElementById("variable");
-        var timePeriod = document.getElementById("timePeriod");
+        const variable = document.getElementById("variable");
+        const timePeriod = document.getElementById("timePeriod");
         variable.disabled = timePeriod.disabled = true;
         document.querySelector(".loader-container").classList.remove("hidden");
 
@@ -423,7 +438,7 @@
       {
         console.log('begin');
 
-        var zones_featurelayer = new FeatureLayer({
+        const zones_featurelayer = new FeatureLayer({
           objectIdField: "OBJECTID",
           source: zone_boundaries.features,
           fields: zone_boundaries.fields,
@@ -433,7 +448,7 @@
               type: "simple-fill",
               color: [0,0,0,0],
               style: "solid",
-              outline: { color: [0,0,0,0], width: 0.3 }
+              outline: { color: [200,200,200,.4], width: 0.2 }
             }
           }
         });
@@ -441,7 +456,10 @@
         od_layer = new ODLayer({
           zone_boundaries: zone_boundaries,
           zone_id_column: zone_id_column,
-          render_colour: colours.red
+          render_color: colors.red,
+          render_border: false,
+          click_enabled: false,
+          hover_enabled: false
         });
 
         od_layer.watch("zone_render_values", update_legend);
@@ -454,14 +472,13 @@
 
         view.whenLayerView(od_layer).then(function(layer_view){
           od_layer_view = layer_view;
-          window.od_layer_view = od_layer_view;
-          window.od_layer = od_layer;
+
           view.whenLayerView(zones_featurelayer).then(function(){
-            view.on("pointer-move", handle_move_event);
-            view.on("click", handle_click_event);
+            od_layer.click_enabled = true;
+            od_layer.hover_enabled = true;
             view.on("double-click", handle_double_click_event);
 
-            var loader = document.querySelector('.main-loader');
+            const loader = document.querySelector('.main-loader');
             loader.addEventListener('transitionend', function(){
               loader.classList.add("hidden");
             });
@@ -469,49 +486,29 @@
           });
         });
 
-        var paused = false;
-
-        function handle_move_event(event){
-          if (paused) return;
-          view.hitTest(event).then(handle_hit_test);
-        }
-
-        function handle_click_event(event){
-          view.hitTest(event).then(handle_hit_test);
-        }
-
         function handle_double_click_event(event){
-          paused = !paused;
+          od_layer.hover_enabled = !od_layer.hover_enabled;
           event.stopPropagation();
-        }
-
-        function handle_hit_test(response){
-          var zone_graphics = response.results.filter(function(r){
-            return r.graphic.layer === zones_featurelayer;
-          });
-          if (zone_graphics.length) {
-            od_layer.zone = zone_graphics[0].graphic.attributes[zone_id_column];
-          }
         }
 
         function update_legend(values) {
 
-          var mean = document.querySelector('#legend .mean');
-          var plus1stdev = document.querySelector('#legend .plus1stdev');
-          var minus1stdev = document.querySelector('#legend .minus1stdev');
+          const mean = document.querySelector('#legend .mean');
+          const plus1stdev = document.querySelector('#legend .plus1stdev');
+          const minus1stdev = document.querySelector('#legend .minus1stdev');
 
-          var colour = document.querySelector("#legend .colour");
+          const color = document.querySelector("#legend .color");
 
           mean.innerHTML = Math.round(values.mean*100)/100 || "-";
           plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
           minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
 
-          var red = od_layer.render_colour.r;
-          var green = od_layer.render_colour.g;
-          var blue = od_layer.render_colour.b;
-          var alpha = od_layer.render_colour.a;
+          const red = od_layer.render_color.r;
+          const green = od_layer.render_color.g;
+          const blue = od_layer.render_color.b;
+          const alpha = od_layer.render_color.a;
 
-          colour.style.backgroundImage =
+          color.style.backgroundImage =
             "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
         }
       }
@@ -547,7 +544,7 @@
     <div class="plus1stdev">-</div>
     <div class="mean">-</div>
     <div class="minus1stdev">-</div>
-    <div class="colour"></div>
+    <div class="color"></div>
   </div>
   <div class="loader-container"><div class="loader"></div></div>
   <div class="loader-container main-loader">
