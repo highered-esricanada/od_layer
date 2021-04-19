@@ -6,7 +6,11 @@ The purpose of the Origin-Destination layer in this project is to enable interac
 
 ### Demo
 
-To view a single layer, open the following URL (*Caution: this sample downloads ~30-50mb of data on startup, and for each additional variable you choose to view once loaded.*) [https://highered-esricanada.github.io/od_layer/demo/index.html](https://highered-esricanada.github.io/od_layer/demo/index.html).  The demo app provides the following functionality:
+To view a single layer, open the following URL (*Caution: this sample downloads ~30-50mb of data on startup, and for each additional variable you choose to view once loaded.*) [https://highered-esricanada.github.io/od_layer/demo/index.html](https://highered-esricanada.github.io/od_layer/demo/index.html).
+
+[![Demo 1](demo/images/demo1.png)](https://highered-esricanada.github.io/od_layer/demo/index.html)
+
+The demo app provides the following functionality:
 
 * You can select the variable to view and the time period from the controls in the bottom left.  
 * Mouseover or click on the map to select the origin/destination zone (double-click on the map to disable/enable the mouseover effect).
@@ -16,7 +20,11 @@ To view a single layer, open the following URL (*Caution: this sample downloads 
 
 A second demo presents a 2x2 dashboard-like view allowing you to simultaneously compare four different views (e.g., travel times for four different time periods).  This will load 4x the data as the first demo.  It is best viewed on desktop browsers with (give it time to load the data and generate textures for all four maps): [https://highered-esricanada.github.io/od_layer/demo/dashboard.html](https://highered-esricanada.github.io/od_layer/demo/dashboard.html)
 
+[![Demo 2](demo/images/demo2.png)](https://highered-esricanada.github.io/od_layer/demo/dashboard.html)
+
 A third demo shows an option added to render values differently, with two gradients for values above/below a specified midpoint.  In this example, the difference between either cost or time associated with driving an automobile vs. taking public transit is calculated between two O/D matrices, and this difference is visualized using a different colour for values above zero (higher cost/time associated with transit) and below zero (higher cost or time associated with driving in an automobile).  Note that this demo will download about ~60-80mb on startup to load two O/D matrices of data: [https://highered-esricanada.github.io/od_layer/demo/difference.html](https://highered-esricanada.github.io/od_layer/demo/difference.html)
+
+[![Demo 3](demo/images/demo3.png)](https://highered-esricanada.github.io/od_layer/demo/difference.html)
 
 ### Data requirements
 
