@@ -1,10 +1,13 @@
 define([
+  "module",
+
   "esri/core/watchUtils",
   "esri/core/promiseUtils",
+  "esri/request",
 
   "esri/geometry/Polyline",
 
-  "esri/tasks/support/FeatureSet",
+  "esri/rest/support/FeatureSet",
 
   "esri/layers/Layer",
   "esri/layers/FeatureLayer",
@@ -13,8 +16,11 @@ define([
 
   "https://cdn.jsdelivr.net/npm/gl-matrix@3.3.0/gl-matrix-min.js"
 ], function(
+  module,
+
   watchUtils,
   promiseUtils,
+  esriRequest,
 
   Polyline,
 
@@ -27,118 +33,24 @@ define([
 
   glMatrix
 ){
+  // Default shaders are in separate files stored in the same location as the
+  // ODLayer.js file (having them separate makes it easier to view and edit the
+  // WebGL code as C syntax)
+  const vertex_shader_url = module.uri.split("/").slice(0,-1).join("/")+"/vertex.shader";
+  const fragment_shader_url = module.uri.split("/").slice(0,-1).join("/")+"/fragment.shader";
 
-  const vertex_shader_src = `
-    // Transforms from map units to pixels.
-    uniform mat3 u_transform;
+  // A JSON represntation of the ODMatrix protocol buffer object required as a data source:
+  const matrix_proto_url = module.uri.split("/").slice(0,-1).join("/")+"/matrix.proto.json";
 
-    // Rotates offset vectors in screen space according to map rotation.
-    uniform mat3 u_rotation;
+  // This will be a promise object that should return the ODMatrix prototype:
+  let getODMatrix = new Promise((resolve) => {
+    esriRequest(matrix_proto_url, {responseType: "json"}).then(response => {
+      let root = protobuf.Root.fromJSON(response.data);
+      ODMatrix = root.lookupType("od_layer.ODMatrix");
+      resolve(ODMatrix);
+    });
+  });
 
-    // Transforms from pixels to normalized device coordinates (NDC).
-    uniform mat3 u_display;
-
-    // Position of the vertex in map units.
-    attribute vec2 a_position;
-
-    // Offset vectors; used to give polylines a thickness in screen space;
-    // they are set to (0, 0) for polygons.
-    attribute vec2 a_offset;
-
-    // The first component (a_typeAndAntiAlias.x) containst the type of the
-    // mesh; it's 0 for polygons and 1 for polylines. The second component
-    // (a_typeAndAntiAlias.y) is a value used for antialias for lines; it is
-    // set to 0.5 for polygons, which means that we don't care about antialising
-    // polygons, while for polylines it is 0.5 on the centerline and 0 and 1 on
-    // the edges.
-    attribute vec2 a_typeAndAntiAlias;
-
-    // This is the index of the feature in the order provided by the the featureSet.
-    attribute float a_index;
-
-    // The a_index value gets copied into this varying and passed to the fragment shader.
-    varying float v_columnIndex;
-
-    // The a_typeAndAntiAlias gets copied into this varying and passed to the fragment shader.
-    varying vec2 v_typeAndAntiAlias;
-
-    void main() {
-      // Rotate the offset vectors.
-      vec3 transformedOffset = u_rotation * vec3(a_offset, 0.0);
-
-      // Compute position on the vertex in screen space (pixels).
-      vec3 screenPosition = u_transform * vec3(a_position, 1.0) + transformedOffset;
-
-      // Convert position to NDC.
-      gl_Position.xy = (u_display * vec3(screenPosition.xy, 1.0)).xy;
-      gl_Position.zw = vec2(0.0, 1.0);
-
-      // Copy attributes to varyings for use by the fragment shader.
-      v_columnIndex = a_index;
-      v_typeAndAntiAlias = a_typeAndAntiAlias;
-    }
-  `;
-
-  const fragment_shader_src = `
-    // Precision qualification is mandatory in fragment shaders.
-    precision mediump float;
-
-    // This will be used to index the texture horizontally.
-    varying float v_columnIndex;
-    varying vec2 v_typeAndAntiAlias;
-
-    // These will be used to index the texture vertically indicates the active
-    // zone to use for obtaining colors from a 2D texture.
-    uniform float u_activeZoneIndex;
-
-    // Indicates the directionality of the origin/destination rendering
-    //   0 == outward (from active zone to others)
-    //   1 == inward (to active zone from others)
-    uniform float u_renderDirection;
-
-    // Indicates the border should be rendered
-    //   0 == no border
-    //   1 == border
-    uniform float u_renderBorder;
-
-    // The lookup table as a 2D texture.
-    uniform sampler2D u_colorTable;
-
-    // The texture is square and the size of the side is equal
-    // to the number of features. Current implementation is limited
-    // in the number of features it can handle, but should be at
-    // least 4096.
-    uniform float u_colorTableSize;
-
-    void main() {
-      // Lookup value from the active row.
-      // We add 0.5 to hit the center of the texel.
-      // Also, if the row index was -1, we default the value to 0.
-      vec2 activeTexcoords = vec2(
-        ((u_renderDirection == 1.0 ? v_columnIndex : u_activeZoneIndex) + 0.5) / u_colorTableSize,
-        ((u_renderDirection == 1.0 ? u_activeZoneIndex : v_columnIndex) + 0.5) / u_colorTableSize
-      );
-
-      vec4 activeColor = u_activeZoneIndex < 0.0 ? vec4(0.0) :
-        (u_activeZoneIndex == v_columnIndex ? vec4(255,255,255,1) : texture2D(u_colorTable, activeTexcoords));
-
-      // The polygon color is a combination of red and green, while the polyline color
-      // is always gray (if u_renderBorder == 1)
-      vec3 color = mix(vec3(activeColor.r, activeColor.g, activeColor.b), vec3(0.2), v_typeAndAntiAlias.x);
-
-      // Map antialias value to a number between 0 and 1 such that:
-      //   0.5  -->  1
-      //     0  -->  0
-      //     1  -->  0
-      // This will have the effect of making all polygons solid and make polylines solid on the centerline
-      // and transparent on the edges.
-      // If u_renderBorder == 0, then only polygon fill will be rendered, and no polylines:
-      float alpha = u_renderBorder == 1.0 ? pow(1.0 - (0.5 - v_typeAndAntiAlias.y) * (0.5 - v_typeAndAntiAlias.y) / 0.25, 1.5) : 1.0 - v_typeAndAntiAlias.x;
-
-      // We use premultiplied alpha, that is, the alpha also multiplies the RGB part.
-      gl_FragColor = vec4(color, activeColor.a) * alpha;
-    }
-  `;
 
   function standardDeviation(values, avg){
     if (!avg) avg = average(values);
@@ -169,6 +81,10 @@ define([
     return data.reduce(function(max, value){
       return Math.max(max, value);
     }, data[0]);
+  }
+
+  function scale255rgb(color) {
+    return {r: color.r/255, g: color.g/255, b: color.b/255, a: color.a};
   }
 
   // Creates a program from a pair of <script type="text/x-shader"> snippets,
@@ -228,6 +144,9 @@ define([
        // Represents a half-screen translation in pixels.
       this.screenTranslation = glMatrix.vec2.create();
 
+      // This will store the max texture size supported by the current device:
+      this.maxTextureSize = false;
+
       // A translation vector from the current center of the view in map units
       // to the local origin of the geometry; the position of a vertex of a feature
       // in map units is given by its encoded position in the vertex buffers, plus
@@ -258,78 +177,99 @@ define([
 
       const updateFeatures = this.updateFeatures.bind(this);
       const requestRender = this.requestRender.bind(this);
-      const updateColorTable = this.updateColorTable.bind(this);
+      const updateZoneData = this.updateZoneData.bind(this);
+      const updateZoneDataUrl = this.updateZoneDataUrl.bind(this);
 
       this.watch_zone_boundaries = this.watch("layer.zone_boundaries", updateFeatures);
       this.watch_active_zone_id = this.watch("layer.active_zone_id", requestRender);
       this.watch_color_table = this.watch("color_table", requestRender);
-      this.watch_zone_data = this.watch('layer.zone_data', updateColorTable);
+      this.watch_zone_data_url = this.watch("layer.zone_data_url", updateZoneDataUrl);
+      this.watch_zone_data = this.watch('layer.zone_data', updateZoneData);
       this.watch_render_direction = this.watch('layer.render_direction_outward', requestRender);
-      this.watch_render_color = this.watch('layer.render_color', function(){ updateColorTable(true); })
+      this.watch_render_from_color = this.watch('layer.render_from_color', requestRender);
+      this.watch_render_to_color = this.watch('layer.render_to_color', requestRender);
+      this.watch_render_mid_color = this.watch('layer.render_mid_color', requestRender);
+      this.watch_render_active_color = this.watch('layer.render_active_color', requestRender);
+      this.watch_render_nodata_color = this.watch('layer.render_nodata_color', requestRender);
+    },
+
+    // When a new URL is provided for zone data, download it, and decode
+    // it usign the ODMatrix protocol buffer.
+    updateZoneDataUrl: function() {
+      if (!this.layer.zone_data_url) return;
+
+      getODMatrix.then(ODMatrix => {
+
+        fetch(this.layer.zone_data_url).then(
+          response => response.arrayBuffer()
+        ).then(buffer => {
+          this.layer.zone_data = ODMatrix.decode(new Uint8Array(buffer));
+        });
+      });
     },
 
     // We listen for changes to the zone_boundaries of the layer
     // and trigger the generation of new frames. A frame rendered while
     // `needsUpdate` is true may cause an update of the vertex and
     // index buffers.
-    updateFeatures: function(arguments) {
+    updateFeatures: function() {
       // Tessellate graphics.
       this.promises = [];
 
       // For each polygon we tessellate a polygon mesh...
-      this.layer.zone_boundaries.features.forEach(function (g, index) {
+      this.layer.zone_boundaries.features.forEach((g, index) => {
         this.promises.push(
-          this.tessellatePolygon(g.geometry).then(function(mesh) {
+          this.tessellatePolygon(g.geometry).then(mesh => {
             return {
               mesh: mesh,
               type: "polygon",
-              rowIndex: index
+              rowIndex: index,
+              zone_id: g.attributes[this.layer.zone_id_column]
             };
           })
         );
-      }.bind(this));
+      });
 
       // ...and the associated polyline.
-      this.layer.zone_boundaries.features.forEach(function (g, index) {
+      this.layer.zone_boundaries.features.forEach((g, index) => {
         const polylineGeometry = new Polyline({
           spatialReference: g.geometry.spatialReference,
           paths: g.geometry.rings
         });
 
         this.promises.push(
-          this.tessellatePolyline(polylineGeometry, 1.5).then(function(mesh) {
+          this.tessellatePolyline(polylineGeometry, this.layer.border_width >= 0 ? this.layer.border_width : 1.5).then(mesh => {
             return {
               mesh: mesh,
               type: "polyline",
-              rowIndex: index
+              rowIndex: index,
+              zone_id: g.attributes[this.layer.zone_id_column]
             };
           })
         );
-      }.bind(this));
+      });
 
       promiseUtils.all(this.promises).then(
-        function(items) {
+        items => {
           this.items = items;
           this.needsUpdate = true;
           this.requestRender();
-        }.bind(this)
+        }
       );
     },
 
     // When the layer.zone_data property is updated, this will be triggered.
     // It can also be called if other options are updated that affect how
     // colours should be defined.
-    updateColorTable: function(force) {
+    updateZoneData: function(force) {
 
       // If no data are loaded, do nothing...
       if (!this.layer.zone_data) return;
 
-      // If we already have a colour table, do not re-generate it unless forced
-      if (!!this.color_table && !force) return;
+      // If we already have zone rendering values, do not re-generate it unless forced
+      if (!!this.zone_render_values && !force) return;
 
-      // If the zone_data are new or changed, then a copy of the
-      // raw values in a simple array will be extracted for calculating stats.
-      // Otherwise
+      // If the zone_data are new or changed, update zone ID lookups...
       if (this.last_zone_data !== this.layer.zone_data) {
         this.last_zone_data = this.layer.zone_data;
 
@@ -339,213 +279,234 @@ define([
           this.zone_id_feature_index[this.layer.zone_boundaries.features[idx].attributes[this.layer.zone_id_column]] = idx;
         }
 
-        // Create a lookup that relates a zone ID to its index in the O/D data matrix
-        this.zone_id_data_index = {};
-        for (let idx = 0; idx < this.last_zone_data.zone_ids.length; idx++) {
-          this.zone_id_data_index[this.last_zone_data.zone_ids[idx]] = idx;
+        // Create lookups that relate zone IDs to their index in the
+        // origin/destination ID lists in the OD matrix data object:
+        this.origin_id_data_index = {};
+        this.destination_id_data_index = {};
+        for (let idx = 0; idx < this.last_zone_data.origin_ids.length; idx++) {
+          this.origin_id_data_index[this.last_zone_data.origin_ids[idx]] = idx;
         }
-
-        this.zone_values = [].concat.apply([], this.last_zone_data.data);
+        for (let idx = 0; idx < this.last_zone_data.destination_ids.length; idx++) {
+          this.destination_id_data_index[this.last_zone_data.destination_ids[idx]] = idx;
+        }
       }
 
-      const color_table = [];
-      if (!this.layer.render_midpoint && this.layer.render_midpoint !==0) {
-        const mean = average(this.zone_values);
-        const stdev = standardDeviation(this.zone_values, mean);
-        const minus1stdev = mean - stdev;
-        const plus1stdev = mean + stdev;
-        const min = minimum(this.zone_values);
-        const max = maximum(this.zone_values);
+      // Get min/max for scaling values between 0 and 1:
+      const min = minimum(this.last_zone_data.data);
+      const max = maximum(this.last_zone_data.data);
 
-        for (let from_index = 0; from_index < this.layer.zone_boundaries.features.length; from_index++) {
-          const from_zone = this.layer.zone_boundaries.features[from_index];
+      // Create either a single colour ramp, or colour ramp with a mid-value...
+      if (!this.layer.render_mid_value && this.layer.render_mid_value !== 0) {
 
-          for (let to_index = 0; to_index < this.layer.zone_boundaries.features.length; to_index++) {
-            const to_zone = this.layer.zone_boundaries.features[to_index];
+        // If values are provided for scaling colors, use those...
+        if (
+          (!!this.layer.render_from_value || this.layer.render_from_value===0) &&
+          (!!this.layer.render_to_value || this.layer.render_to_value===0)
+        ) {
+          this.layer.zone_render_values = {
+            scale_from: this.layer.render_from_value,
+            scale_to: this.layer.render_to_value,
+            scale_mid: (this.layer.render_to_value - this.layer.render_from_value) / 2,
+            use_mid: false,
+            min: min,
+            max: max
+          }
 
-            // Get the o/d matrix value that correspondes to the current pair of zones
-            const cell_value = this.last_zone_data.data[
-              this.zone_id_data_index[from_zone.attributes[this.layer.zone_id_column]]
-            ][
-              this.zone_id_data_index[to_zone.attributes[this.layer.zone_id_column]]
-            ];
+        //Otherwise, calculate stats to pick an appropriate min/max...
+        } else {
+          const num_origins = this.last_zone_data.origin_ids.length;
+          const mean = average(this.last_zone_data.data);
+          const stdev = standardDeviation(this.last_zone_data.data, mean);
+          const minus1stdev = mean - stdev;
+          const plus1stdev = mean + stdev;
 
-            const src_color = this.layer.render_color || {r: 255, g: 0, b: 0, a: 1};
-            const multiplier = 1-(cell_value - minus1stdev)/(plus1stdev - minus1stdev);
-            color_table.push(
-              src_color.r * multiplier > 255 ? 255 : Math.max(src_color.r * multiplier, 0),
-              src_color.g * multiplier > 255 ? 255 : Math.max(src_color.g * multiplier, 0),
-              src_color.b * multiplier > 255 ? 255 : Math.max(src_color.b * multiplier, 0),
-              src_color.a * multiplier > 1 ? 1 : Math.max(src_color.a * multiplier, 0)
-            );
+          this.layer.zone_render_values = {
+            scale_from: minus1stdev,
+            scale_to: plus1stdev,
+            scale_mid: (plus1stdev + minus1stdev)/2,
+            use_mid: false,
+            min: min,
+            max: max
           }
         }
-
-        this.color_table = color_table;
-        this.layer.zone_render_values = {
-          minus1stdev: minus1stdev,
-          plus1stdev: plus1stdev,
-          min: min,
-          max: max,
-          mean: mean
-        }
-        this.layer.zone_colors = this.color_table;
-
       } else {
-        const above_values = this.zone_values.filter(function(value){ return value > this.layer.render_midpoint; }, this);
-        const below_values = this.zone_values.filter(function(value){ return value < this.layer.render_midpoint; }, this);
 
-        const above_mean = average(above_values);
-        const above_stdev = standardDeviation(above_values, above_mean);
-        const above_minus1stdev = above_mean - above_stdev;
-        const above_plus1stdev = above_mean + above_stdev;
-        const above_min = minimum(above_values);
-        const above_max = maximum(above_values);
-
-        const below_mean = average(below_values);
-        const below_stdev = standardDeviation(below_values, below_mean);
-        const below_minus1stdev = below_mean - below_stdev;
-        const below_plus1stdev = below_mean + below_stdev;
-        const below_min = minimum(below_values);
-        const below_max = maximum(below_values);
-
-        for (let from_index = 0; from_index < this.layer.zone_boundaries.features.length; from_index++) {
-          const from_zone = this.layer.zone_boundaries.features[from_index];
-
-          for (let to_index = 0; to_index < this.layer.zone_boundaries.features.length; to_index++) {
-            const to_zone = this.layer.zone_boundaries.features[to_index];
-
-            // Get the o/d matrix value that correspondes to the current pair of zones
-            const cell_value = this.last_zone_data.data[
-              this.zone_id_data_index[from_zone.attributes[this.layer.zone_id_column]]
-            ][
-              this.zone_id_data_index[to_zone.attributes[this.layer.zone_id_column]]
-            ];
-
-            if (cell_value > this.layer.render_midpoint) {
-              const src_color = this.layer.render_color.above || {r: 255, g: 0, b: 0, a: 1};
-              const multiplier = (cell_value - this.layer.render_midpoint)/(above_plus1stdev - this.layer.render_midpoint);
-              //const multiplier = (cell_value - above_minus1stdev)/(above_plus1stdev - above_minus1stdev);
-
-              color_table.push(
-                src_color.r * multiplier > 255 ? 255 : Math.max(src_color.r * multiplier, 0),
-                src_color.g * multiplier > 255 ? 255 : Math.max(src_color.g * multiplier, 0),
-                src_color.b * multiplier > 255 ? 255 : Math.max(src_color.b * multiplier, 0),
-                src_color.a * multiplier > 1 ? 1 : Math.max(src_color.a * multiplier, 0)
-              );
-            } else {
-              const src_color = this.layer.render_color.below || {r: 0, g: 0, b: 255, a: 1};
-              const multiplier = 1-(cell_value - below_minus1stdev)/(this.layer.render_midpoint - below_minus1stdev);
-              //const multiplier = 1-(cell_value - below_minus1stdev)/(below_plus1stdev - below_minus1stdev);
-
-              color_table.push(
-                src_color.r * multiplier > 255 ? 255 : Math.max(src_color.r * multiplier, 0),
-                src_color.g * multiplier > 255 ? 255 : Math.max(src_color.g * multiplier, 0),
-                src_color.b * multiplier > 255 ? 255 : Math.max(src_color.b * multiplier, 0),
-                src_color.a * multiplier > 1 ? 1 : Math.max(src_color.a * multiplier, 0)
-              );
-            }
+        if (
+          (!!this.layer.render_from_value || this.layer.render_from_value===0) &&
+          (!!this.layer.render_to_value || this.layer.render_to_value===0)
+        ) {
+          this.layer.zone_render_values = {
+            scale_from: this.layer.render_from_value,
+            scale_to: this.layer.render_to_value,
+            scale_mid: this.layer.render_mid_value,
+            use_mid: true,
+            min: min,
+            max: max
           }
+        } else {
+          const above_values = this.last_zone_data.data.filter(function(value){ return value > this.layer.render_mid_value; }, this);
+          const below_values = this.last_zone_data.data.filter(function(value){ return value < this.layer.render_mid_value; }, this);
+
+          const above_mean = average(above_values);
+          const above_stdev = standardDeviation(above_values, above_mean);
+          const above_minus1stdev = above_mean - above_stdev;
+          const above_plus1stdev = above_mean + above_stdev;
+          const above_min = minimum(above_values);
+          const above_max = maximum(above_values);
+
+          const below_mean = average(below_values);
+          const below_stdev = standardDeviation(below_values, below_mean);
+          const below_minus1stdev = below_mean - below_stdev;
+          const below_plus1stdev = below_mean + below_stdev;
+          const below_min = minimum(below_values);
+          const below_max = maximum(below_values);
+
+          this.layer.zone_render_values = {
+            scale_from: below_minus1stdev,
+            scale_to: above_plus1stdev,
+            scale_mid: this.layer.render_mid_value,
+            use_mid: true,
+            min: min,
+            max: max
+          };
         }
-
-        this.color_table = color_table;
-        this.layer.zone_render_values = {
-          above: {
-            minus1stdev: above_minus1stdev,
-            plus1stdev: above_plus1stdev,
-            min: above_min,
-            max: above_max,
-            mean: above_mean,
-            count: above_values.length
-          },
-          below: {
-            minus1stdev: below_minus1stdev,
-            plus1stdev: below_plus1stdev,
-            min: below_min,
-            max: below_max,
-            mean: below_mean,
-            count: below_values.length
-          }
-        };
-        this.layer.zone_colors = this.color_table;
       }
 
       this.requestRender();
 
-      this.layer.emit('color-table-updated');
+      this.layer.emit('zone-data-updated');
     },
 
     // Called once a custom layer is added to the map.layers collection and this layer view is instantiated.
     attach: function(a) {
-      const gl = this.context;
 
-      // Create the vertex and index buffer. They are initially empty. We need to track the
-      // size of the index buffer because we use indexed drawing.
-      this.vertexBuffer = gl.createBuffer();
-      this.indexBuffer = gl.createBuffer();
+      const shaders_ready = () => {
 
-      // Number of indices in the index buffer.
-      this.indexBufferSize = 0;
+        const gl = this.context;
 
-      // When certain conditions occur, we update the buffers and re-compute and re-encode
-      // all the attributes. When buffer update occurs, we also take note of the current center
-      // of the view state, and we reset a vector called `translationToCenter` to [0, 0], meaning that the
-      // current center is the same as it was when the attributes were recomputed.
-      this.centerAtLastUpdate = glMatrix.vec2.fromValues(
-        this.view.state.center[0],
-        this.view.state.center[1]
-      );
+        // Identify the maximum texture size permitted by the device:
+        if (!this.maxTextureSize) this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
 
-      // Creates the shader program.
-      this.featuresProgram = createProgram(
-        gl,
-        this.vertex_shader_src || vertex_shader_src,
-        this.fragment_shader_src || fragment_shader_src,
-        {
-          a_position: 0,
-          a_offset: 1,
-          a_typeAndAntiAlias: 2,
-          a_index: 3
-        },
-        [
-          "u_transform",
-          "u_rotation",
-          "u_display",
-          "u_activeZoneIndex",
-          "u_renderDirection",
-          "u_renderBorder",
-          "u_colorTableSize",
-          "u_colorTable"
-        ]
-      );
+        // Create the vertex and index buffer. They are initially empty. We need to track the
+        // size of the index buffer because we use indexed drawing.
+        this.vertexBuffer = gl.createBuffer();
+        this.indexBuffer = gl.createBuffer();
 
-      // Handle hovering.
-      this.watch_mapview_hover = this.view.on("pointer-move", function (event) {
-        const mapPoint = this.view.toMap({x: event.x, y: event.y});
-        this.updateVisualization("hover", mapPoint);
-      }.bind(this));
+        // Number of indices in the index buffer.
+        this.indexBufferSize = 0;
 
-      // Handle clicks.
-      this.watch_mapview_click = this.view.on("click", function (event) {
-        if (event.button === 0 && !this.hover_enabled) {
+        // When certain conditions occur, we update the buffers and re-compute and re-encode
+        // all the attributes. When buffer update occurs, we also take note of the current center
+        // of the view state, and we reset a vector called `translationToCenter` to [0, 0], meaning that the
+        // current center is the same as it was when the attributes were recomputed.
+        this.centerAtLastUpdate = glMatrix.vec2.fromValues(
+          this.view.state.center[0],
+          this.view.state.center[1]
+        );
+
+        // Creates the shader program.
+        this.featuresProgram = createProgram(
+          gl,
+          this.vertex_shader_src,
+          this.fragment_shader_src,
+          {
+            a_position: 0,
+            a_offset: 1,
+            a_typeAndAntiAlias: 2,
+            a_originIndex: 3,
+            a_destinationIndex: 4
+          },
+          [
+            "u_transform",
+            "u_rotation",
+            "u_display",
+            "u_activeZoneIndex",
+            "u_renderDirection",
+            "u_renderFromValue",
+            "u_renderToValue",
+            "u_renderMidValue",
+            "u_renderFromColor",
+            "u_renderToColor",
+            "u_renderMidColor",
+            "u_noDataColor",
+            "u_activeColor",
+            "u_useMidColor",
+            "u_renderBorder",
+            "u_borderColor",
+            "u_dataOrigins",
+            "u_dataDestinations",
+            "u_textureRows",
+            "u_textureCols",
+            "u_dataTexture",
+            "u_scaleValueMin",
+            "u_scaleValueMax"
+          ]
+        );
+
+        // Handle hovering.
+        this.watch_mapview_hover = this.view.on("pointer-move", event => {
           const mapPoint = this.view.toMap({x: event.x, y: event.y});
-          this.updateVisualization("click", mapPoint);
-        }
-      }.bind(this));
+          this.updateVisualization("hover", mapPoint);
+        });
 
-      this.updateColorTable();
+        // Handle clicks.
+        this.watch_mapview_click = this.view.on("click", event => {
+          if (event.button === 0 && !this.hover_enabled) {
+            const mapPoint = this.view.toMap({x: event.x, y: event.y});
+            this.updateVisualization("click", mapPoint);
+          }
+        });
+
+        this.updateZoneData();
+      }
+
+      // Load default shader code if custom shader code is not provided:
+      if (!this.vertex_shader_src || !this.fragment_shader_src) {
+
+        // Load default the vertex and fragment shader source code:
+        let vertex_shader_req = esriRequest(vertex_shader_url, {responseType: "text"});
+        let fragment_shader_req = esriRequest(fragment_shader_url, {responseType: "text"});
+
+        vertex_shader_req.then(response => this.vertex_shader_src = response.data);
+        fragment_shader_req.then(response => this.fragment_shader_src = response.data);
+
+        promiseUtils.eachAlways([
+          vertex_shader_req,
+          fragment_shader_req
+        ]).then(results => {
+          let err = false;
+          results.forEach(result => {
+            if (result.error){
+              console.log(result.error);
+              err = true;
+            }
+          });
+          if (!err) shaders_ready();
+        })
+      } else {
+        // Load the shaders...since custom shader code was provided, there is
+        // no need to load the vertex.shader and fragment.shader files.
+        shaders_ready();
+      }
     },
 
     // Called once a custom layer is removed from the map.layers collection and this layer view is destroyed.
     detach: function() {
-      // // Stop watching layer properties.
-      // this.watch_zone_boundaries.remove();
-      // this.watch_active_zone_id.remove();
-      // this.watch_zone_data.remove();
-      // this.watch_render_direction.remove();
+      // Stop watching layer properties.
+      this.watch_zone_boundaries.remove();
+      this.watch_active_zone_id.remove();
+      this.watch_color_table.remove();
+      this.watch_zone_data_url.remove();
+      this.watch_zone_data.remove();
+      this.watch_render_direction.remove();
       this.watch_mapview_click.remove();
       this.watch_mapview_hover.remove();
       this.watch_mapview_double_click.remove();
+      this.watch_render_from_color.remove();
+      this.watch_render_to_color.remove()
+      this.watch_render_mid_color.remove()
+      this.watch_render_active_color.remove()
+      this.watch_render_nodata_color.remove();
 
       const gl = this.context;
 
@@ -555,20 +516,52 @@ define([
       gl.deleteProgram(this.featuresProgram);
     },
 
-    // Updates the texture when the table changes on the layer.
+    // Updates the texture used by the shaders, if needed.
     _updateTextureTable: function (gl) {
-      if (this._lastColorTable === this.color_table) {
+      if (this._last_texture_data === this.layer.zone_data) {
         return;
       }
 
-      this._lastColorTable = this.color_table;
+      this._last_texture_data = this.layer.zone_data;
 
       gl.deleteTexture(this._textureTable);
       this._textureTable = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this._textureTable);
-      const size = Math.sqrt(this._lastColorTable.length / 4);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(this._lastColorTable));
+
+      // We will be passing the raw values into a texture as RGBA colour values.  The point
+      // of doing so is to get 4x the amount of data passed into the shader, and minimize the
+      // the amount of calculations and memory required inthe  JavaScript code.  Each value
+      // in the source data will be sequentially inserted into each row, colum, rgba value.
+      // The shader will then use input uniform paramters to translate origin/destination
+      // zone IDs relative to the input OD matrix into row, column, rgba coordiantes in a
+      // texture that stores the same data in its RGBA values.  Additional uniform parameters
+      // will define how each value should be converted a display colour.
+
+      // Get the deimensions of the input OD matrix:
+      const dataOrigins = this._dataOrigins = this._last_texture_data.origin_ids.length;
+      const dataDestinations = this._dataDestinations = this._last_texture_data.destination_ids.length;
+      const totalValues = this._totalValues = dataOrigins * dataDestinations;
+
+      // Max texture width will be used as the max width:
+      const textureCols = this._textureCols = this.maxTextureSize;
+
+      // Number of rows is determined to accomodate the total number of values in
+      // the input data matrix
+      const textureRows = this._textureRows = Math.ceil(totalValues / 4 / textureCols);
+
+      // Can't load the entire OD on this device....
+      if (textureRows > this.maxTextureSize) {
+        console.error("Unable to load entire OD matrix (" + dataOrigins + " x " + dataDestinations + " = " + dataOrigins * dataDestinations + " - exceeds maximum of " + this.maxTextureSize * this.maxTextureSize * 4 + ")");
+      }
+
+      // We need to pad the data array with arbitrary values to fill any empty pixels
+      // that would be on the last row of data:
+      while (this._last_texture_data.data.length < (textureCols * textureRows * 4)) {
+        this._last_texture_data.data.push(0);
+      }
+
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, textureCols, textureRows, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(this._last_texture_data.data.map(value => (value - this.layer.zone_render_values.min) / (this.layer.zone_render_values.max - this.layer.zone_render_values.min) * 255)));
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -640,14 +633,40 @@ define([
       gl.uniformMatrix3fv(this.featuresProgram.uniforms.u_transform, false, this.transform);
       gl.uniformMatrix3fv(this.featuresProgram.uniforms.u_rotation, false, this.rotation);
       gl.uniformMatrix3fv(this.featuresProgram.uniforms.u_display, false, this.display);
-      const active_zone_index = this.layer.active_zone_id != null ? this.zone_id_feature_index[this.layer.active_zone_id] : -1;
+      const active_zone_index = this.layer.active_zone_id != null ? (
+        this.layer.render_direction_outward ?
+        this.origin_id_data_index[this.layer.active_zone_id] :
+        this.destination_id_data_index[this.layer.active_zone_id]
+      ) : -1;
       gl.uniform1f(this.featuresProgram.uniforms.u_activeZoneIndex, active_zone_index);
+
+      // these are the uniforms that describe the input dimensions of the OD Matrix, and the resulting
+      // dimensions of the texture that is being used to pass its values...
+      gl.uniform1f(this.featuresProgram.uniforms.u_dataOrigins, this._dataOrigins);
+      gl.uniform1f(this.featuresProgram.uniforms.u_dataDestinations, this._dataDestinations);
+      gl.uniform1f(this.featuresProgram.uniforms.u_textureRows, this._textureRows);
+      gl.uniform1f(this.featuresProgram.uniforms.u_textureCols, this._textureCols);
+
+
+      // These are the uniforms that describe how to convert values in the data into colours:
       gl.uniform1f(this.featuresProgram.uniforms.u_renderDirection, this.layer.render_direction_outward ? 1 : 0);
       gl.uniform1f(this.featuresProgram.uniforms.u_renderBorder, this.layer.render_border ? 1 : 0);
-      gl.uniform1f(this.featuresProgram.uniforms.u_colorTableSize, Math.sqrt(this.color_table.length / 4));
+      gl.uniform1f(this.featuresProgram.uniforms.u_renderFromValue, this.layer.zone_render_values.scale_from);
+      gl.uniform1f(this.featuresProgram.uniforms.u_renderToValue, this.layer.zone_render_values.scale_to);
+      gl.uniform1f(this.featuresProgram.uniforms.u_renderMidValue, this.layer.zone_render_values.use_mid ? this.layer.zone_render_values.scale_mid : 0);
+      gl.uniform4fv(this.featuresProgram.uniforms.u_renderFromColor, Object.values(scale255rgb(this.layer.render_from_color)));
+      gl.uniform4fv(this.featuresProgram.uniforms.u_renderToColor, Object.values(scale255rgb(this.layer.render_to_color)));
+      gl.uniform4fv(this.featuresProgram.uniforms.u_renderMidColor, this.layer.zone_render_values.use_mid ? Object.values(scale255rgb(this.layer.render_mid_color)) : [0, 0, 0, 0]);
+      gl.uniform4fv(this.featuresProgram.uniforms.u_noDataColor, this.layer.render_nodata_color ? Object.values(scale255rgb(this.layer.render_nodata_color)) : [0, 0, 0, 0]);
+      gl.uniform4fv(this.featuresProgram.uniforms.u_activeColor, this.layer.render_active_color ? Object.values(scale255rgb(this.layer.render_active_color)) : [1, 1, 1, 1]);
+      gl.uniform4fv(this.featuresProgram.uniforms.u_borderColor, this.layer.border_color ? Object.values(scale255rgb(this.layer.border_color)) : [.4,.4,.4,.0]);
+      gl.uniform1f(this.featuresProgram.uniforms.u_useMidColor, this.layer.zone_render_values.use_mid ? 1 : 0);
+      gl.uniform1f(this.featuresProgram.uniforms.u_scaleValueMin, this.layer.zone_render_values.min);
+      gl.uniform1f(this.featuresProgram.uniforms.u_scaleValueMax, this.layer.zone_render_values.max);
+
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, this._textureTable);
-      gl.uniform1i(this.featuresProgram.uniforms.u_colorTable, 0);
+      gl.uniform1i(this.featuresProgram.uniforms.u_dataTexture, 0);
 
       // Bind and configure buffers.
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
@@ -655,11 +674,13 @@ define([
       gl.enableVertexAttribArray(this.featuresProgram.attributes.a_position);
       gl.enableVertexAttribArray(this.featuresProgram.attributes.a_offset);
       gl.enableVertexAttribArray(this.featuresProgram.attributes.a_typeAndAntiAlias);
-      gl.enableVertexAttribArray(this.featuresProgram.attributes.a_index);
-      gl.vertexAttribPointer(this.featuresProgram.attributes.a_position, 2, gl.FLOAT, false, 28, 0);
-      gl.vertexAttribPointer(this.featuresProgram.attributes.a_offset, 2, gl.FLOAT, false, 28, 8);
-      gl.vertexAttribPointer(this.featuresProgram.attributes.a_typeAndAntiAlias, 2, gl.FLOAT, false, 28, 16);
-      gl.vertexAttribPointer(this.featuresProgram.attributes.a_index, 1, gl.FLOAT, false, 28, 24);
+      gl.enableVertexAttribArray(this.featuresProgram.attributes.a_originIndex);
+      gl.enableVertexAttribArray(this.featuresProgram.attributes.a_destinationIndex);
+      gl.vertexAttribPointer(this.featuresProgram.attributes.a_position, 2, gl.FLOAT, false, 32, 0);
+      gl.vertexAttribPointer(this.featuresProgram.attributes.a_offset, 2, gl.FLOAT, false, 32, 8);
+      gl.vertexAttribPointer(this.featuresProgram.attributes.a_typeAndAntiAlias, 2, gl.FLOAT, false, 32, 16);
+      gl.vertexAttribPointer(this.featuresProgram.attributes.a_originIndex, 1, gl.FLOAT, false, 32, 24);
+      gl.vertexAttribPointer(this.featuresProgram.attributes.a_destinationIndex, 1, gl.FLOAT, false, 32, 28);
 
       // Enable premultiplied alpha blending.
       gl.enable(gl.BLEND);
@@ -682,7 +703,7 @@ define([
       }
 
       // Re-create the abort controller.
-      this.abortControllers[action] = promiseUtils.createAbortController();
+      this.abortControllers[action] = new AbortController();
 
       // Query the polygon under the mouse pointer.
       this.inMemoryFeatureLayer.queryFeatures({
@@ -716,6 +737,7 @@ define([
 
     // Called internally from render().
     updatePositions: function(renderParameters) {
+
       const gl = renderParameters.context;
       const stationary = renderParameters.stationary;
       const state = renderParameters.state;
@@ -755,7 +777,7 @@ define([
       const indexCount = this.items.reduce(function(indexCount, item) {
         return indexCount + item.mesh.indices.length;
       }, 0);
-      const vertexData = new Float32Array(vertexCount * 7);
+      const vertexData = new Float32Array(vertexCount * 8);
       const indexData = new Uint32Array(indexCount);
       let currentVertex = 0;
       let currentIndex = 0;
@@ -767,20 +789,23 @@ define([
           indexData[currentIndex] = currentVertex + idx;
           currentIndex++;
         }
-
         // Write vertices.
         for (let i = 0; i < item.mesh.vertices.length; ++i) {
           const v = item.mesh.vertices[i];
-          vertexData[currentVertex * 7 + 0] = v.x - this.centerAtLastUpdate[0];
-          vertexData[currentVertex * 7 + 1] = v.y - this.centerAtLastUpdate[1];
-          vertexData[currentVertex * 7 + 2] = v.xOffset;
-          vertexData[currentVertex * 7 + 3] = v.yOffset;
-          vertexData[currentVertex * 7 + 4] = item.type === "polygon" ? 0 : 1;
-          vertexData[currentVertex * 7 + 5] = item.type === "polygon" ? 0.5 : v.vTexcoord;
-          vertexData[currentVertex * 7 + 6] = item.rowIndex;
+          vertexData[currentVertex * 8 + 0] = v.x - this.centerAtLastUpdate[0];
+          vertexData[currentVertex * 8 + 1] = v.y - this.centerAtLastUpdate[1];
+          vertexData[currentVertex * 8 + 2] = v.xOffset;
+          vertexData[currentVertex * 8 + 3] = v.yOffset;
+          vertexData[currentVertex * 8 + 4] = item.type === "polygon" ? 0 : 1;
+          vertexData[currentVertex * 8 + 5] = item.type === "polygon" ? 0.5 : v.vTexcoord;
+          vertexData[currentVertex * 8 + 6] = (this.origin_id_data_index && this.origin_id_data_index[item.zone_id] >= 0) ? this.origin_id_data_index[item.zone_id] : -1;
+          vertexData[currentVertex * 8 + 7] = (this.destination_id_data_index && this.destination_id_data_index[item.zone_id] >= 0) ? this.destination_id_data_index[item.zone_id] : -1;
           currentVertex++;
         }
       }
+
+      window.vertexData = vertexData;
+      window.gl = gl;
 
       // Uploads data to the GPU
       gl.bindBuffer(gl.ARRAY_BUFFER, this.vertexBuffer);
@@ -795,18 +820,34 @@ define([
 
   return Layer.createSubclass({
     properties: {
+      // These are the boundaries used for rendering the origins/destnations - a polygon featureset is expected...
       zone_boundaries: {
         type: FeatureSet
       },
       zone_id_column: {},  // Name of the column/attribute that will be used to identify zones (does not need to be unique per polygon)
+      zone_data_url: {},  // A URL that points to a protocol-buffer formatted OD Matrix
       zone_data: {},  // an object with two properties: data: a 2-dimensional array of values for representing traveling from each origin zone (rows) to all destination zones (columns), zone_ids (a list of zone_ids that are in the same order as rows/columns of the data)
       active_zone_id: {}, // The id of the currently active zone
-      render_direction_outward: {}, // If true, will render travel from selected zone to all others.  If false, will render travel to selected zone from all others.
-      render_color: {}, // A colour object that is used for the lowest time, lowest cost, etc.  (e.g., for red: {r:255, g:0, b: 0, a: 1}).  If render_midpoint is set (below), it could be an object with two properties 'above' and 'below' that contain colour objects.
-      zone_render_values: {}, // a watchable property that is updated with the min/max/mean of the currently displayed values, plus the plus1stdev/minus1stdev values used for rendering colours.
-      zone_colors: {},  // a watchable property that is the lookup used for applying colours to each zone
-      render_midpoint: null, // a watchable property - if not null, it is expected to be a numerical value representing the midpoint used for classifying above/below values.
+
+      // If true, will render travel from selected zone to all others.  If false, will render travel to selected zone from all others.
+      render_direction_outward: {},
+
+      // If specified, these values define the start/end (and optionally mid) values and colours used for rendering
+      render_from_value: null,  // defaults to mean minus 1 standard deviation if unspecified
+      render_to_value: null,   // no midpoint is used if unspecified...just from/to
+      render_mid_value: null,  // defaults to mean plus 1 standard deviation if unspecified
+      render_from_color: {},   // defaults to opaque red if unspecified (e.g., {r: 255, g: 0, b: 0, a: 1})
+      render_to_color: {},     // defaults to transparent black if unspecified ({r: 0, g: 0, b: 0, a: 0})
+      render_mid_color: {},    // defaults to transparent black if unspecified ({r: 0, g: 0, b: 0, a: 0})
+
+      // a watchable property that is updated with the min/max/mean of the currently displayed values (i.e., if they are not specified by the properties above above, then values represented here are derived from mean/standard-deviation of values in the matrix)
+      zone_render_values: {},
+
+      // If false, no border is rendered by the shaders (e.g., it may be better to just draw the fatureset itself for this)
       render_border: false,
+      border_color: {},  // defaults to a translucent grey
+      boreder_width: {},  // deafults to 1.5
+
       hover_enabled: true,
       click_enabled: true
     },
@@ -822,6 +863,18 @@ define([
           layer: this
         });
       }
+    },
+
+    fetchODMatrix: function(url) {
+      return new Promise(resolve => {
+        getODMatrix.then(ODMatrix => {
+          fetch(url).then(
+            response => response.arrayBuffer()
+          ).then(buffer => {
+            resolve(ODMatrix.decode(new Uint8Array(buffer)));
+          });
+        });
+      });
     }
   });
 });

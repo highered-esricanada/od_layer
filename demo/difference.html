@@ -139,7 +139,7 @@
       right: 15px;
     }
 
-    #legend .plus1stdev, #legend .mean, #legend .minus1stdev {
+    #legend .to, #legend .mid, #legend .from {
       position: absolute;
       right: 25px;
       text-align: right;
@@ -148,15 +148,15 @@
       margin-top: -6px;
     }
 
-    #legend .mean {
+    #legend .mid {
       top: 106px;
     }
 
-    #legend .plus1stdev {
+    #legend .to {
       bottom: 24px;
     }
 
-    #legend .minus1stdev {
+    #legend .from {
       top: 26px;
     }
 
@@ -167,14 +167,15 @@
       right: 3px;
       bottom: 3px;
       background-image: linear-gradient(rgba(0,0,0,0) 15%, rgba(0,0,0,0) 85%);
+      mix-blend-mode: lighten;
     }
 
   </style>
 
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
-
-  <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/dark/main.css"/>
-  <script src="https://js.arcgis.com/4.18/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.22/esri/themes/dark/main.css"/>
+  <script src="https://cdn.jsdelivr.net/gh/dcodeIO/protobuf.js@6.11.2/dist/protobuf.min.js"></script>
+  <script src="https://js.arcgis.com/4.22/"></script>
 
   <script>
     require([
@@ -239,7 +240,7 @@
 
       const legend = document.getElementById("legend");
       view.ui.add(legend, "manual");
-      legend.addEventListener("click", function(){
+      legend.addEventListener("click", function() {
         switch_color();
       });
 
@@ -250,47 +251,40 @@
       let od_layer = null;
 
       const colors = {
-        red: {r: 255, g:0, b: 0, a:1},
-        yellow: {r: 255, g:255, b: 0, a:1},
-        green: {r: 0, g:255, b: 0, a:1},
-        cyan: {r: 0, g:255, b: 255, a:1},
-        blue: {r: 0, g:0, b: 255, a:1},
-        magenta: {r: 255, g:0, b: 255, a:1}
+        red: {r: 255, g:0, b: 0, a: 0.5},
+        yellow: {r: 255, g:255, b: 0, a: 0.5},
+        green: {r: 0, g:255, b: 0, a: 0.5},
+        cyan: {r: 0, g:255, b: 255, a: 0.5},
+        blue: {r: 0, g:0, b: 255, a: 0.5},
+        magenta: {r: 255, g:0, b: 255, a: 0.5}
       }
 
-      fetch("data/ttsZones.json").then(function(response){
-        console.log('got boundaries');
+      fetch("data/ttsZones.json").then(function(response) {
         response.json().then(function(data){
-          data.geometryType = "polygon"; // Seems 'esriGeometryTypePolygon' is not accepted
-          data.features = data.features.map(function(f){
-            f.geometry.type = "polygon"; // Seems that we need to specify the geometry type on every feature
-            f.geometry.spatialReference = data.spatialReference;
-            return f;
-          });
+          window.zone_boundary_data = data;
           zone_boundaries = data;
           begin();
         });
       });
 
-      addButton("switchDirection", function(){
+      addButton("switchDirection", function() {
         od_layer.render_direction_outward = !od_layer.render_direction_outward;
         update_labels();
       });
 
-      addSelect("timePeriod", function(){
+      addSelect("timePeriod", function() {
         load_od_data().then(function(od_data){
           od_layer.zone_data = od_data;
         });
       });
 
-      addSelect("variable", function(){
+      addSelect("variable", function() {
         load_od_data().then(function(od_data){
           od_layer.zone_data = od_data;
         });
       });
 
-      function update_labels()
-      {
+      function update_labels() {
         const variable = document.getElementById("variable");
         const variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
         if (od_layer.render_direction_outward) {
@@ -302,21 +296,11 @@
 
       function switch_color(view_id) {
         const all_colors = Object.values(colors);
-        const current_color_index = all_colors.indexOf(od_layer.render_midpoint==null?od_layer.render_color:od_layer.render_color.above);
-        variable.disabled = timePeriod.disabled = true;
-        document.querySelector(".loader-container").classList.remove("hidden");
+        const current_color_index = all_colors.indexOf(od_layer.render_to_color);
 
-        od_layer.once('color-table-updated', function(){
-          document.querySelector(".loader-container").classList.add("hidden");
-          variable.disabled = timePeriod.disabled = false;
-        });
-
-        setTimeout(function(){
-          od_layer.render_color = {
-            above: all_colors[(current_color_index+1)%all_colors.length],
-            below: all_colors[(current_color_index+3)%all_colors.length]
-          };
-        }, 100);
+        od_layer.render_to_color = all_colors[(current_color_index+1)%all_colors.length];
+        od_layer.render_from_color = all_colors[(current_color_index+3)%all_colors.length];
+        update_legend(od_layer.zone_render_values);
       }
 
       function load_od_data(){
@@ -327,38 +311,86 @@
         document.querySelector(".loader-container").classList.remove("hidden");
 
         last_src = [timePeriod.value + "/" + variables[0], timePeriod.value + "/" + variables[1]];
-        return new Promise(function(resolve, reject){
-          fetch("data/"+last_src[0]+".json").then(function(response){
-            response.json().then(function(od_data){
-              const auto_data = od_data;
+        return new Promise(resolve => {
+          od_layer.fetchODMatrix("data/"+last_src[0]+".pb").then(auto_data => {
+            od_layer.fetchODMatrix("data/"+last_src[1]+".pb").then(transit_data => {
+              document.querySelector(".loader-container").classList.add("hidden");
+              update_labels();
 
-              fetch("data/"+last_src[1]+".json").then(function(response){
-                response.json().then(function(od_data){
-                  const transit_data = od_data;
-
-                  document.querySelector(".loader-container").classList.add("hidden");
-                  update_labels();
-                  console.log("got od data");
-                  variable.disabled = timePeriod.disabled = false;
-
-                  const od_diff = {data: [], zone_ids: [].concat(auto_data.zone_ids)};
-                  for (const r in od_diff.zone_ids) {
-                    od_diff.data.push([]);
-                    for (const c in od_diff.zone_ids) {
-                      od_diff.data[r].push(transit_data.data[r][c] - auto_data.data[r][c]);
-                    }
-                  }
-                  resolve(od_diff);
-                });
-              });
+              variable.disabled = timePeriod.disabled = false;
+              for (const i in auto_data.data) {
+                auto_data.data[i] = transit_data.data[i] - auto_data.data[i];
+              }
+              console.log("got od data");
+              resolve(auto_data);
             });
           });
         });
-
       }
 
-      function begin()
-      {
+      function update_legend(values) {
+
+        const mid = document.querySelector('#legend .mid');
+        const from = document.querySelector('#legend .from');
+        const to = document.querySelector('#legend .to');
+
+        const color = document.querySelector("#legend .color");
+
+        if (od_layer.render_mid_value == null) {
+          mid.innerHTML = Math.round(values.scale_mid*100)/100;
+          to.innerHTML = Math.round(values.scale_to*100)/100;
+          from.innerHTML = Math.round(values.scale_from*100)/100;
+
+          const from_red = od_layer.render_from_color.r;
+          const from_green = od_layer.render_from_color.g;
+          const from_blue = od_layer.render_from_color.b;
+          const from_alpha = od_layer.render_from_color.a;
+
+          const to_red = od_layer.render_to_color.r;
+          const to_green = od_layer.render_to_color.g;
+          const to_blue = od_layer.render_to_color.b;
+          const to_alpha = od_layer.render_to_color.a;
+
+          color.style.backgroundImage =
+            "linear-gradient(rgba("+
+              from_red+","+from_green+","+from_blue+",1"+
+            ") 15%, rgba("+
+              to_red+","+to_green+","+to_blue+",1"+
+            ") 85%";
+        } else {
+
+          mid.innerHTML = Math.round(values.scale_mid*100)/100;
+          to.innerHTML = Math.round(values.scale_to*100)/100;
+          from.innerHTML = Math.round(values.scale_from*100)/100;
+
+          const from_red = od_layer.render_from_color.r;
+          const from_green = od_layer.render_from_color.g;
+          const from_blue = od_layer.render_from_color.b;
+          const from_alpha = od_layer.render_from_color.a;
+
+          const mid_red = od_layer.render_mid_color.r;
+          const mid_green = od_layer.render_mid_color.g;
+          const mid_blue = od_layer.render_mid_color.b;
+          const mid_alpha = od_layer.render_mid_color.a;
+
+          const to_red = od_layer.render_to_color.r;
+          const to_green = od_layer.render_to_color.g;
+          const to_blue = od_layer.render_to_color.b;
+          const to_alpha = od_layer.render_to_color.a;
+
+          color.style.backgroundImage =
+            "linear-gradient(rgba("+
+              from_red+","+from_green+","+from_blue+",1"+
+            ") 15%, rgba("+
+              mid_red+","+mid_green+","+mid_blue+",1"+
+            ") 50%, rgba("+
+              to_red+","+to_green+","+to_blue+",1"+
+            ") 85%";
+
+        }
+      }
+
+      function begin() {
         console.log('begin');
 
         const zones_featurelayer = new FeatureLayer({
@@ -379,14 +411,26 @@
         od_layer = new ODLayer({
           zone_boundaries: zone_boundaries,
           zone_id_column: zone_id_column,
-          render_color: {above: colors.magenta, below: colors.yellow},
-          render_midpoint: 0,
-          render_border: false,
+          render_border: false,  // works, but doesn't look as nice as borders drawn with a regular feature layer...
+          border_color: { r: 100, g: 100, b: 100, a: .4 },
+          border_width: 1.5,
+          render_from_color: colors.yellow,
+          render_mid_color: {r: 0, g: 0, b: 0, a: 0.0},
+          render_to_color: colors.magenta,
+          render_nodata_color: {r: 50, g: 50, b: 50, a: 0.5},
+          render_active_color: {r: 255, g: 255, b: 255, a: 1},
+          render_mid_value: 0,
           click_enabled: false,
           hover_enabled: false
         });
+        window.od_layer = od_layer;
 
         od_layer.watch("zone_render_values", update_legend);
+
+        od_layer.on('zone-data-updated', function(){
+          document.querySelector(".loader-container").classList.add("hidden");
+          variable.disabled = timePeriod.disabled = false;
+        });
 
         load_od_data().then(function(od_data){
           od_layer.zone_data = od_data;
@@ -396,6 +440,7 @@
 
         view.whenLayerView(od_layer).then(function(layer_view){
           od_layer_view = layer_view;
+          window.od_layer_view = od_layer_view;
 
           view.whenLayerView(zones_featurelayer).then(function(){
             od_layer.click_enabled = true;
@@ -413,48 +458,6 @@
         function handle_double_click_event(event){
           od_layer.hover_enabled = !od_layer.hover_enabled;
           event.stopPropagation();
-        }
-
-        function update_legend(values) {
-
-          const mean = document.querySelector('#legend .mean');
-          const plus1stdev = document.querySelector('#legend .plus1stdev');
-          const minus1stdev = document.querySelector('#legend .minus1stdev');
-
-          const color = document.querySelector("#legend .color");
-
-          if (od_layer.render_midpoint == null) {
-            mean.innerHTML = Math.round(values.mean*100)/100 || "-";
-            plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
-            minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
-
-            const red = od_layer.render_color.r;
-            const green = od_layer.render_color.g;
-            const blue = od_layer.render_color.b;
-            const alpha = od_layer.render_color.a;
-
-            color.style.backgroundImage =
-              "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
-          } else {
-
-            mean.innerHTML = od_layer.render_midpoint;
-            plus1stdev.innerHTML = Math.round(values.above.plus1stdev*100)/100 || "-";
-            minus1stdev.innerHTML = Math.round(values.below.minus1stdev*100)/100 || "-";
-
-            const above_red = od_layer.render_color.above.r;
-            const above_green = od_layer.render_color.above.g;
-            const above_blue = od_layer.render_color.above.b;
-            const above_alpha = od_layer.render_color.above.a;
-
-            const below_red = od_layer.render_color.below.r;
-            const below_green = od_layer.render_color.below.g;
-            const below_blue = od_layer.render_color.below.b;
-            const below_alpha = od_layer.render_color.below.a;
-
-            color.style.backgroundImage =
-              "linear-gradient(rgba("+below_red+","+below_green+","+below_blue+","+below_alpha+") 15%, rgba(0,0,0,0) 50%, rgba("+above_red+","+above_green+","+above_blue+","+above_alpha+") 85%";
-
-          }
         }
       }
     });
@@ -482,9 +485,9 @@
     Click to select a zone while mouseover is paused.
   </div>
   <div class="esri-widget" id="legend">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="loader-container"><div class="loader"></div></div>

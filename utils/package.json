@@ -1,0 +1,6 @@
+{
+  "name": "od_layer-utils",
+  "devDependencies": {
+    "protobufjs": "~6.11.2"
+  }
+}

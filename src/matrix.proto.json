@@ -1,0 +1,30 @@
+{
+  "nested": {
+    "od_layer": {
+      "nested": {
+        "ODMatrix": {
+          "fields" : {
+            "origin_ids": {
+              "id": 1,
+              "type": "int32",
+              "rule": "repeated",
+              "packed": true
+            },
+            "destination_ids": {
+              "id": 2,
+              "type": "int32",
+              "rule": "repeated",
+              "packed": true
+            },
+            "data": {
+              "id": 3,
+              "type": "float",
+              "rule": "repeated",
+              "packed": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

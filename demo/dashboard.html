@@ -164,7 +164,7 @@
       right: 15px;
     }
 
-    .legend .plus1stdev, .legend .mean, .legend .minus1stdev {
+    .legend .to, .legend .mid, .legend .from {
       position: absolute;
       right: 25px;
       text-align: right;
@@ -173,15 +173,15 @@
       margin-top: -6px;
     }
 
-    .legend .mean {
+    .legend .mid {
       top: 106px;
     }
 
-    .legend .plus1stdev {
+    .legend .to {
       bottom: 24px;
     }
 
-    .legend .minus1stdev {
+    .legend .from {
       top: 36px;
     }
 
@@ -192,14 +192,15 @@
       right: 3px;
       bottom: 3px;
       background-image: linear-gradient(rgba(255,0,0,1) 15%, rgba(0,0,0,0) 85%);
+      mix-blend-mode: lighten;
     }
 
   </style>
 
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
-
-  <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/dark/main.css"/>
-  <script src="https://js.arcgis.com/4.18/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.22/esri/themes/dark/main.css"/>
+  <script src="https://cdn.jsdelivr.net/gh/dcodeIO/protobuf.js@6.11.2/dist/protobuf.min.js"></script>
+  <script src="https://js.arcgis.com/4.22/"></script>
 
   <script>
     require([
@@ -240,12 +241,12 @@
       let zone_boundaries = null;
 
       const colors = {
-        red: {r: 255, g:0, b: 0, a:1},
-        yellow: {r: 255, g:255, b: 0, a:1},
-        green: {r: 0, g:255, b: 0, a:1},
-        cyan: {r: 0, g:255, b: 255, a:1},
-        blue: {r: 0, g:0, b: 255, a:1},
-        magenta: {r: 255, g:0, b: 255, a:1}
+        red: {r: 255, g:0, b: 0, a: 0.5},
+        yellow: {r: 255, g:255, b: 0, a: 0.5},
+        green: {r: 0, g:255, b: 0, a: 0.5},
+        cyan: {r: 0, g:255, b: 255, a: 0.5},
+        blue: {r: 0, g:0, b: 255, a: 0.5},
+        magenta: {r: 255, g:0, b: 255, a: 0.5}
       }
       const color_defaults = {
         "view-tl":"red",
@@ -286,35 +287,42 @@
         }, view_id);
 
         addSelect(".time-period", function(){
-          load_od_data(view_id).then(function(result){
-            od_layers[view_id].zone_data = result.od_data;
-          });
+            od_layers[view_id].zone_data_url = get_od_data_url(view_id);
         }, view_id);
 
         addSelect(".variable", function(){
-          load_od_data(view_id).then(function(result){
-            od_layers[view_id].zone_data = result.od_data;
-          });
+          od_layers[view_id].zone_data_url = get_od_data_url(view_id);
         }, view_id);
 
         const od_layer = od_layers[view_id] = new ODLayer({
           zone_boundaries: zone_boundaries,
           zone_id_column: zone_id_column,
-          render_color: colors[color_defaults[view_id]],
-          render_border: false,
+          render_border: false,  // works, but doesn't look as nice as borders drawn with a regular feature layer...
+          border_color: { r: 100, g: 100, b: 100, a: .4 },
+          border_width: 1.5,
+          render_from_color: colors[color_defaults[view_id]],
+          render_to_color: {r: 0, g: 0, b: 0, a: 0.0},
+          render_nodata_color: {r: 50, g: 50, b: 50, a: 0.5},
+          render_active_color: {r: 255, g: 255, b: 255, a: 1},
           click_enabled: false,
           hover_enabled: false
         });
 
         od_layer.watch("zone_render_values", handle_render_update);
 
+        od_layer.on('zone-data-updated', function(){
+          const variable = document.querySelector(".variable."+view_id);
+          const timePeriod = document.querySelector(".time-period."+view_id);
+          document.querySelector(".loader-container."+view_id).classList.add("hidden");
+          variable.disabled = timePeriod.disabled = false;
+        });
+
         function handle_render_update(values) {
+          document.querySelector('.legend.'+view_id).classList.remove('hidden');
           update_legend(values, view_id);
         }
 
-        load_od_data(view_id).then(function(result){
-          od_layer.zone_data = result.od_data;
-        });
+        od_layer.zone_data_url = get_od_data_url(view_id);
 
         const zones_featurelayer = zones_featurelayers[view_id] = new FeatureLayer({
           objectIdField: "OBJECTID",
@@ -370,7 +378,7 @@
         const btn = document.querySelector(selector+"."+view_id);
         views[view_id].ui.add(btn, "top-left");
         btn.addEventListener("click", onClick);
-    }
+      }
 
       function addSelect(selector, onChange, view_id) {
         const select = document.querySelector(selector+"."+view_id);
@@ -378,8 +386,7 @@
         select.addEventListener("change", onChange);
       }
 
-      function update_labels(view_id)
-      {
+      function update_labels(view_id) {
         const variable = document.querySelector(".variable."+view_id);
         const subtitle = document.querySelector(".subtitle."+view_id);
         const variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
@@ -393,56 +400,38 @@
       function switch_color(view_id) {
         const od_layer = od_layers[view_id];
         const all_colors = Object.values(colors);
-        const current_color_index = all_colors.indexOf(od_layer.render_color);
+        const current_color_index = all_colors.indexOf(od_layer.render_from_color);
 
-        const variable = document.querySelector(".variable."+view_id);
-        const timePeriod = document.querySelector(".time-period."+view_id);
-        variable.disabled = timePeriod.disabled = true;
-        document.querySelector(".loader-container."+view_id).classList.remove("hidden");
-
-        od_layer.once('color-table-updated', function(){
-          document.querySelector(".loader-container."+view_id).classList.add("hidden");
-          variable.disabled = timePeriod.disabled = false;
-        });
-
-        setTimeout(function(){
-          od_layer.render_color = all_colors[(current_color_index+1)%all_colors.length];
-        }, 100);
+        od_layer.render_from_color = all_colors[(current_color_index+1)%all_colors.length];
+        update_legend(od_layer.zone_render_values, view_id);
       }
 
-      function load_od_data(view_id){
+      function get_od_data_url(view_id) {
 
         const variable = document.querySelector(".variable."+view_id);
         const timePeriod = document.querySelector(".time-period."+view_id);
         variable.disabled = timePeriod.disabled = true;
         document.querySelector(".loader-container."+view_id).classList.remove("hidden");
+        update_labels(view_id);
 
         od_src[view_id] = timePeriod.value + "/" + variable.value;
-        return new Promise(function(resolve, reject){
-          fetch("data/"+od_src[view_id]+".json").then(function(response){
-            response.json().then(function(od_data){
-              document.querySelector(".loader-container."+view_id).classList.add("hidden");
-              update_labels(view_id);
-              variable.disabled = timePeriod.disabled = false;
-              resolve({od_data: od_data, view_id: view_id});
-            });
-          });
-        });
+        return "data/" + od_src[view_id] + ".pb";
+
       }
 
-      function update_active_zone_id(od_layer){
+      function update_active_zone_id(od_layer) {
         for (const lyr of Object.values(od_layers)) {
           if (lyr !== od_layer) lyr.active_zone_id = od_layer.active_zone_id;
         }
       }
 
-      function update_hover_enabled(od_layer){
+      function update_hover_enabled(od_layer) {
         for (const lyr of Object.values(od_layers)) {
           if (lyr !== od_layer) lyr.hover_enabled = od_layer.hover_enabled;
         }
       }
 
-      function handle_double_click_event(od_layer){
+      function handle_double_click_event(od_layer) {
         od_layer.hover_enabled = !od_layer.hover_enabled;
         update_hover_enabled(od_layer);
       }
@@ -467,25 +456,32 @@
 
       function update_legend(values, view_id) {
 
-        const mean = document.querySelector('.legend.'+view_id+' .mean');
-        const plus1stdev = document.querySelector('.legend.'+view_id+' .plus1stdev');
-        const minus1stdev = document.querySelector('.legend.'+view_id+' .minus1stdev');
+        const mid = document.querySelector('.legend.'+view_id+' .mid');
+        const to = document.querySelector('.legend.'+view_id+' .to');
+        const from = document.querySelector('.legend.'+view_id+' .from');
 
         const color = document.querySelector('.legend.'+view_id+' .color');
 
-        mean.innerHTML = Math.round(values.mean*100)/100 || "-";
-        plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
-        minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
+        mid.innerHTML = Math.round(values.scale_mid*100)/100;
+        to.innerHTML = Math.round(values.scale_to*100)/100;
+        from.innerHTML = Math.round(values.scale_from*100)/100;
 
-        const red = od_layers[view_id].render_color.r;
-        const green = od_layers[view_id].render_color.g;
-        const blue = od_layers[view_id].render_color.b;
-        const alpha = od_layers[view_id].render_color.a;
+        const from_red = od_layers[view_id].render_from_color.r;
+        const from_green = od_layers[view_id].render_from_color.g;
+        const from_blue = od_layers[view_id].render_from_color.b;
+        const from_alpha = od_layers[view_id].render_from_color.a;
+
+        const to_red = od_layers[view_id].render_to_color.r;
+        const to_green = od_layers[view_id].render_to_color.g;
+        const to_blue = od_layers[view_id].render_to_color.b;
+        const to_alpha = od_layers[view_id].render_to_color.a;
 
         color.style.backgroundImage =
-          "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
-
-        document.querySelector('.legend.'+view_id).classList.remove("hidden");
+          "linear-gradient(rgba("+
+            from_red+","+from_green+","+from_blue+",1"+
+          ") 15%, rgba("+
+            to_red+","+to_green+","+to_blue+",1"+
+          ") 85%";
       }
 
       fetch("data/ttsZones.json").then(function(response){
@@ -502,8 +498,7 @@
         });
       });
 
-      function begin()
-      {
+      function begin() {
         console.log('begin');
 
         setup_map("view-tl");
@@ -585,27 +580,27 @@
   <div class="esri-widget subtitle view-br">Loading data...</div>
   <div class="esri-widget subtitle view-bl">Loading data...</div>
   <div class="esri-widget legend view-tl hidden">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="esri-widget legend view-tr hidden">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="esri-widget legend view-br hidden">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="esri-widget legend view-bl hidden">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="loader-container view-tl"><div class="loader"></div></div>

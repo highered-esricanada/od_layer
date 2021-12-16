@@ -1,0 +1,8 @@
+package od_layer;
+syntax = "proto3";
+
+message ODMatrix {
+  repeated int32 origin_ids = 1 [packed = true];
+  repeated int32 destination_ids = 2 [packed = true];
+  repeated float data = 3 [packed = true];
+}

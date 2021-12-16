@@ -7,26 +7,13 @@
   <style>
     html,
     body,
-    #viewDiv, #sceneView {
+    #viewDiv {
       padding: 0;
       margin: 0;
       height: 100%;
       width: 100%;
       background-color: #1d2224;
       overflow: hidden;
-    }
-
-    #sceneView {
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 0;
-      right: 0;
-    }
-
-    #sceneView.hidden-scene, #sceneView.hidden-scene * {
-      opacity: 0;
-      pointer-events: none;
     }
 
     body > * {
@@ -152,7 +139,7 @@
       right: 15px;
     }
 
-    #legend .plus1stdev, #legend .mean, #legend .minus1stdev {
+    #legend .to, #legend .mid, #legend .from {
       position: absolute;
       right: 25px;
       text-align: right;
@@ -161,15 +148,15 @@
       margin-top: -6px;
     }
 
-    #legend .mean {
+    #legend .mid {
       top: 106px;
     }
 
-    #legend .plus1stdev {
+    #legend .to {
       bottom: 24px;
     }
 
-    #legend .minus1stdev {
+    #legend .from {
       top: 26px;
     }
 
@@ -180,14 +167,15 @@
       right: 3px;
       bottom: 3px;
       background-image: linear-gradient(rgba(255,0,0,1) 15%, rgba(0,0,0,0) 85%);
+      mix-blend-mode: lighten;
     }
 
   </style>
 
   <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.7.0/css/all.css" integrity="sha384-lZN37f5QGtY3VHgisS14W3ExzMWZxybE1SJSEsQp9S+oqd12jhcu+A56Ebc1zFSJ" crossorigin="anonymous">
-
-  <link rel="stylesheet" href="https://js.arcgis.com/4.18/esri/themes/dark/main.css"/>
-  <script src="https://js.arcgis.com/4.18/"></script>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.22/esri/themes/dark/main.css"/>
+  <script src="https://cdn.jsdelivr.net/gh/dcodeIO/protobuf.js@6.11.2/dist/protobuf.min.js"></script>
+  <script src="https://js.arcgis.com/4.22/"></script>
 
   <script>
     require([
@@ -196,8 +184,6 @@
       "esri/layers/FeatureLayer",
       "esri/layers/VectorTileLayer",
       "esri/views/MapView",
-      "esri/views/SceneView",
-      "esri/layers/SceneLayer",
 
       "../src/ODLayer.js",
 
@@ -208,8 +194,6 @@
       FeatureLayer,
       VectorTileLayer,
       MapView,
-      SceneView,
-      SceneLayer,
 
       ODLayer
     ) {
@@ -231,34 +215,6 @@
         container: "viewDiv",
         map: map,
         extent: {"spatialReference":{"wkid":3857},"xmin":-8986500,"ymin":5306390,"xmax":-8693900,"ymax":5581260}
-      });
-
-      const tileLayer2d_scene = new VectorTileLayer({
-        url: "https://jsapi.maps.arcgis.com/sharing/rest/content/items/e1ec20a890c94adca8510aeb93c410d0/resources/styles/root.json"
-      });
-
-      const buildings_layer = window.buildings_layer = new SceneLayer({
-        portalItem: {
-          id: "3048e98a234045a384700e87e0f2799b"
-        },
-        popupEnabled: false
-      });
-
-      const scene_map = new Map({
-        layers: [tileLayer2d_scene, buildings_layer]
-      });
-
-      const scene_view = window.scene_view = new SceneView({
-        container: "sceneView",
-        map: scene_map,
-        camera: {"position":{"spatialReference":{"wkid":3857},"x":-8837840,"y":5409295,"z":715},"heading":13.25,"tilt":70},
-        qualityProfile: "high"
-      });
-
-      const close_scene = document.querySelector(".close-scene");
-      scene_view.ui.add(close_scene, "top-right");
-      close_scene.addEventListener("click", function(){
-        document.querySelector("#sceneView").classList.add("hidden-scene");
       });
 
       function addButton(buttonId, onClick) {
@@ -295,99 +251,44 @@
       let od_layer = null;
 
       const colors = {
-        red: {r: 255, g:0, b: 0, a:1},
-        yellow: {r: 255, g:255, b: 0, a:1},
-        green: {r: 0, g:255, b: 0, a:1},
-        cyan: {r: 0, g:255, b: 255, a:1},
-        blue: {r: 0, g:0, b: 255, a:1},
-        magenta: {r: 255, g:0, b: 255, a:1}
+        red: {r: 255, g:0, b: 0, a: 0.5},
+        yellow: {r: 255, g:255, b: 0, a: 0.5},
+        green: {r: 0, g:255, b: 0, a: 0.5},
+        cyan: {r: 0, g:255, b: 255, a: 0.5},
+        blue: {r: 0, g:0, b: 255, a: 0.5},
+        magenta: {r: 255, g:0, b: 255, a: 0.5}
       }
 
-      fetch("data/ttsZones.json").then(function(response){
+      fetch("data/ttsZones.json").then(function(response) {
         response.json().then(function(data){
+          window.zone_boundary_data = data;
           zone_boundaries = data;
           begin();
         });
       });
 
-      addButton("switchDirection", function(){
+      addButton("switchDirection", function() {
         od_layer.render_direction_outward = !od_layer.render_direction_outward;
         update_labels();
       });
 
-      addButton("view3D", function(){
-        show_scene_view();
+      addSelect("timePeriod", function() {
+        const variable = document.getElementById("variable");
+        const timePeriod = document.getElementById("timePeriod");
+        variable.disabled = timePeriod.disabled = true;
+        document.querySelector(".loader-container").classList.remove("hidden");
+        od_layer.zone_data_url = get_od_data_url();
       });
 
-      addSelect("timePeriod", function(){
-        load_od_data().then(function(od_data){
-          od_layer.zone_data = od_data;
-        });
+      addSelect("variable", function() {
+        const variable = document.getElementById("variable");
+        const timePeriod = document.getElementById("timePeriod");
+        variable.disabled = timePeriod.disabled = true;
+        document.querySelector(".loader-container").classList.remove("hidden");
+        od_layer.zone_data_url = get_od_data_url();
       });
 
-      addSelect("variable", function(){
-        load_od_data().then(function(od_data){
-          od_layer.zone_data = od_data;
-        });
-      });
-
-      function show_scene_view()
-      {
-
-        const symbol = {"type":"mesh-3d","symbolLayers":[{"material":{"color":[255,255,255, 0],"colorMixMode":"multiply"},"type":"fill"}]}
-
-        const renderer = {
-          type: "unique-value",
-          defaultSymbol: symbol,
-          field: "TTSZone",
-          uniqueValueInfos: []
-        }
-
-        let active_feature_index = -1;
-        for (let i = 0; i < od_layer.zone_boundaries.features.length; i++) {
-          if (od_layer.active_zone_id == od_layer.zone_boundaries.features[i].attributes[od_layer.zone_id_column]) {
-            active_feature_index = i;
-          }
-        }
-        for (let feature_index = 0; feature_index < od_layer.zone_boundaries.features.length; feature_index++) {
-          let offset = 0;
-          if (od_layer.render_direction_outward) {
-            // Active feature index is the row, and current feature index is the column
-            offset += active_feature_index * 4 * od_layer.zone_boundaries.features.length + feature_index * 4;
-          } else {
-            // Active feature index is the column, and current feature index is the row
-            offset += feature_index * 4 * od_layer.zone_boundaries.features.length + active_feature_index * 4;
-          }
-
-          const color = od_layer.zone_colors.slice(offset, offset + 4);
-          const zone = od_layer.zone_boundaries.features[feature_index].attributes[od_layer.zone_id_column];
-
-          if (zone == od_layer.active_zone_id) { // In 2D, the selected zone is white by default...
-            color[0] = 255;
-            color[1] = 255;
-            color[2] = 255;
-            color[3] = 1;
-          }
-
-          renderer.uniqueValueInfos.push({
-            value: zone,
-            label: zone,
-            symbol: {"type":"mesh-3d","symbolLayers":[{"material":{"color":[
-              color[0],
-              color[1],
-              color[2],
-              1
-            ],"colorMixMode":"multiply"},"type":"fill"}]}
-          });
-        }
-
-        buildings_layer.renderer = renderer;
-
-        document.querySelector("#sceneView").classList.remove("hidden-scene");
-      }
-
-      function update_labels()
-      {
+      function update_labels() {
         const variable = document.getElementById("variable");
         const variable_label = '<strong>'+variable.options[variable.selectedIndex].innerHTML+'</strong><br />';
         if (od_layer.render_direction_outward) {
@@ -399,43 +300,54 @@
 
       function switch_color(view_id) {
         const all_colors = Object.values(colors);
-        const current_color_index = all_colors.indexOf(od_layer.render_color);
-        variable.disabled = timePeriod.disabled = true;
-        document.querySelector(".loader-container").classList.remove("hidden");
+        const current_color_index = all_colors.indexOf(od_layer.render_from_color);
 
-        od_layer.once('color-table-updated', function(){
-          document.querySelector(".loader-container").classList.add("hidden");
-          variable.disabled = timePeriod.disabled = false;
-        });
-
-        setTimeout(function(){
-          od_layer.render_color = all_colors[(current_color_index+1)%all_colors.length];
-        }, 100);
+        od_layer.render_from_color = all_colors[(current_color_index+1)%all_colors.length];
+        update_legend(od_layer.zone_render_values);
       }
 
-      function load_od_data(){
+      function get_od_data_url(){
 
         const variable = document.getElementById("variable");
         const timePeriod = document.getElementById("timePeriod");
         variable.disabled = timePeriod.disabled = true;
         document.querySelector(".loader-container").classList.remove("hidden");
+        update_labels();
+        return "data/" + timePeriod.value + "/" + variable.value+".pb";
 
-        last_src = timePeriod.value + "/" + variable.value;
-        return new Promise(function(resolve, reject){
-          fetch("data/"+last_src+".json").then(function(response){
-            response.json().then(function(od_data){
-              document.querySelector(".loader-container").classList.add("hidden");
-              update_labels();
-              console.log("got od data");
-              variable.disabled = timePeriod.disabled = false;
-              resolve(od_data);
-            });
-          });
-        });
       }
 
-      function begin()
-      {
+      function update_legend(values) {
+
+        const mid = document.querySelector('#legend .mid');
+        const to = document.querySelector('#legend .to');
+        const from = document.querySelector('#legend .from');
+
+        const color = document.querySelector("#legend .color");
+
+        mid.innerHTML = Math.round(values.scale_mid*100)/100;
+        to.innerHTML = Math.round(values.scale_to*100)/100;
+        from.innerHTML = Math.round(values.scale_from*100)/100;
+
+        const from_red = od_layer.render_from_color.r;
+        const from_green = od_layer.render_from_color.g;
+        const from_blue = od_layer.render_from_color.b;
+        const from_alpha = od_layer.render_from_color.a;
+
+        const to_red = od_layer.render_to_color.r;
+        const to_green = od_layer.render_to_color.g;
+        const to_blue = od_layer.render_to_color.b;
+        const to_alpha = od_layer.render_to_color.a;
+
+        color.style.backgroundImage =
+          "linear-gradient(rgba("+
+            from_red+","+from_green+","+from_blue+",1"+
+          ") 15%, rgba("+
+            to_red+","+to_green+","+to_blue+",1"+
+          ") 85%";
+      }
+
+      function begin() {
         console.log('begin');
 
         const zones_featurelayer = new FeatureLayer({
@@ -448,7 +360,7 @@
               type: "simple-fill",
               color: [0,0,0,0],
               style: "solid",
-              outline: { color: [200,200,200,.4], width: 0.2 }
+              outline: { color: [200,200,200,.4], width: 0.5 }
             }
           }
         });
@@ -456,22 +368,34 @@
         od_layer = new ODLayer({
           zone_boundaries: zone_boundaries,
           zone_id_column: zone_id_column,
-          render_color: colors.red,
-          render_border: false,
+          render_border: false,  // works, but doesn't look as nice as borders drawn with a regular feature layer...
+          border_color: { r: 100, g: 100, b: 100, a: .4 },
+          border_width: 1.5,
+          render_from_color: colors.red,
+          render_to_color: {r: 0, g: 0, b: 0, a: 0.0},
+          render_nodata_color: {r: 50, g: 50, b: 50, a: 0.5},
+          render_active_color: {r: 255, g: 255, b: 255, a: 1},
           click_enabled: false,
           hover_enabled: false
         });
+        window.od_layer = od_layer;
 
         od_layer.watch("zone_render_values", update_legend);
 
-        load_od_data().then(function(od_data){
-          od_layer.zone_data = od_data;
+        od_layer.on('zone-data-updated', function(){
+          const variable = document.getElementById("variable");
+          const timePeriod = document.getElementById("timePeriod");
+          document.querySelector(".loader-container").classList.add("hidden");
+          variable.disabled = timePeriod.disabled = false;
         });
+
+        od_layer.zone_data_url = get_od_data_url();
 
         view.map.addMany([zones_featurelayer, od_layer]);
 
         view.whenLayerView(od_layer).then(function(layer_view){
           od_layer_view = layer_view;
+          window.od_layer_view = od_layer_view;
 
           view.whenLayerView(zones_featurelayer).then(function(){
             od_layer.click_enabled = true;
@@ -490,27 +414,6 @@
           od_layer.hover_enabled = !od_layer.hover_enabled;
           event.stopPropagation();
         }
-
-        function update_legend(values) {
-
-          const mean = document.querySelector('#legend .mean');
-          const plus1stdev = document.querySelector('#legend .plus1stdev');
-          const minus1stdev = document.querySelector('#legend .minus1stdev');
-
-          const color = document.querySelector("#legend .color");
-
-          mean.innerHTML = Math.round(values.mean*100)/100 || "-";
-          plus1stdev.innerHTML = Math.round(values.plus1stdev*100)/100 || "-";
-          minus1stdev.innerHTML = Math.round(values.minus1stdev*100)/100 || "-";
-
-          const red = od_layer.render_color.r;
-          const green = od_layer.render_color.g;
-          const blue = od_layer.render_color.b;
-          const alpha = od_layer.render_color.a;
-
-          color.style.backgroundImage =
-            "linear-gradient(rgba("+red+","+green+","+blue+","+alpha+") 15%, rgba(0,0,0,0) 85%";
-        }
       }
     });
   </script>
@@ -519,7 +422,6 @@
 <body class="initializing">
   <div id="viewDiv"></div>
   <button class="fas fa-exchange-alt esri-widget--button" style="border: 0;" id="switchDirection" type="button" title="Switch direction"></button>
-  <button class="fas fa-cubes esri-widget--button" style="border: 0;" id="view3D" type="button" title="View in 3D"></button>
   <select class="esri-widget" id="timePeriod">
     <option value="AM" selected>AM (6am-9am)</option>
     <option value="MD">Midday (9am-3pm)</option>
@@ -541,9 +443,9 @@
     Click to select a zone while mouseover is paused.
   </div>
   <div class="esri-widget" id="legend">
-    <div class="plus1stdev">-</div>
-    <div class="mean">-</div>
-    <div class="minus1stdev">-</div>
+    <div class="to">-</div>
+    <div class="mid">-</div>
+    <div class="from">-</div>
     <div class="color"></div>
   </div>
   <div class="loader-container"><div class="loader"></div></div>
@@ -555,7 +457,5 @@
     </div>
     <div class="loader"></div>
   </div>
-  <div id="sceneView" class="hidden-scene"></div>
-  <button class="far fa-window-close esri-widget--button close-scene" style="border: 0;" type="button" title="Close 3D View"></button>
 </body>
 </html>
