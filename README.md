@@ -1,4 +1,4 @@
-# Origin-Destination Visualization Layer for the ArcGIS API for JavaScript (4.18+)
+# Origin-Destination Visualization Layer for the ArcGIS API for JavaScript (4.22+)
 
 This is an experimental sample that provides a custom layer class for the ArcGIS API for JavaScript that enables visualization of Origin/Destination data matrices using custom WebGL rendering.  An earlier version of this sample was based source code from the [Postcard from Esri](https://github.com/damix911/ds-demo-2019) sample [presented](https://www.esri.com/en-us/about/events/devsummit/agenda/agenda) at the [Esri Developer Summit 2019](https://www.esri.com/en-us/about/events/devsummit/overview). With great assistance from [Dario D'Amico](https://github.com/damix911), the current version of this project has been adapted to load OD matrix data into custom WebGL shaders as 2d texture data objects.  The WebGL shaders use these data to efficiently draw the origin/destination visualizations as a map layer with the ArcGIS API for JavaScript.
 
